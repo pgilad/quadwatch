@@ -499,14 +499,18 @@ func newestCompatible(current string, tags []string) (string, error) {
 		if m == nil || m[1] != prefix || m[3] != suffix {
 			continue
 		}
-		if prefix != "" && prefix != "v" && strings.Count(m[2], ".")+1 != currentSegments {
+		candidateSegments := strings.Count(m[2], ".") + 1
+		if candidateSegments < currentSegments {
+			continue
+		}
+		if prefix != "" && prefix != "v" && candidateSegments != currentSegments {
 			continue
 		}
 		v, err := version.NewVersion(m[2])
 		if err != nil {
 			continue
 		}
-		if v.LessThan(curVer) || (newestVersion != nil && !v.GreaterThan(newestVersion)) {
+		if !v.GreaterThan(curVer) || (newestVersion != nil && !v.GreaterThan(newestVersion)) {
 			continue
 		}
 		newestTag = tag

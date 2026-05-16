@@ -42,6 +42,18 @@ func TestNewestCompatible(t *testing.T) {
 			want:    "1.2.4-alpine",
 		},
 		{
+			name:    "normalized equal version is not newer",
+			current: "8.32.0",
+			tags:    []string{"8.31.0", "8.32", "8.32.0"},
+			want:    "",
+		},
+		{
+			name:    "less precise floating tag is not newer",
+			current: "9.0.4-alpine",
+			tags:    []string{"9.1-alpine", "9.0.5-alpine"},
+			want:    "9.0.5-alpine",
+		},
+		{
 			name:    "non version tag",
 			current: "latest",
 			wantErr: true,
