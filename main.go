@@ -43,7 +43,7 @@ const (
 	ansiBrightCyan   = "\x1b[1;36m"
 )
 
-var defaultConfigPaths = []string{"quadlet-updates.yaml", "quadlet-updates.yml"}
+const cwdConfigPath = "quadlet-updates.yaml"
 
 var (
 	quadletImageKeys  = [][2]string{{"Container", "Image"}, {"Image", "Image"}, {"Volume", "Image"}}
@@ -114,7 +114,7 @@ Commands:
 Options:
   --all          Show all images, including those without updates
   --color MODE   Colorize human-readable output: auto, always, never (default auto)
-  --config PATH  YAML config file (defaults to quadlet-updates.yaml if present)
+  --config PATH  YAML config file (defaults to ./quadlet-updates.yaml, then XDG config)
   --progress     Show remote lookup progress on stderr
 `)
 }
@@ -187,7 +187,11 @@ func loadConfig(path string) (Config, error) {
 	cfg := Config{GitHubReleases: map[string]string{}}
 	explicit := path != ""
 	if !explicit {
-		for _, candidate := range defaultConfigPaths {
+		candidates, err := defaultConfigPaths()
+		if err != nil {
+			return cfg, err
+		}
+		for _, candidate := range candidates {
 			if _, err := os.Stat(candidate); err == nil {
 				path = candidate
 				break
@@ -219,6 +223,28 @@ func loadConfig(path string) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func defaultConfigPaths() ([]string, error) {
+	configDir, err := xdgConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		cwdConfigPath,
+		filepath.Join(configDir, "quadlet-updates", "config.yaml"),
+	}, nil
+}
+
+func xdgConfigDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config"), nil
 }
 
 func pathArg(fs *flag.FlagSet) (string, error) {

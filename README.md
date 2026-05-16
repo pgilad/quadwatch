@@ -62,7 +62,7 @@ Common options:
 - `--format json|csv|table`
 - `--color auto|always|never`: colorize human-readable table/progress output (default `auto`)
 - `--all` for `fetch`: show all images, including those without updates
-- `--config PATH` for `fetch`: load a YAML config file. If omitted, `quadlet-updates.yaml` or `quadlet-updates.yml` in the current directory is used when present.
+- `--config PATH` for `fetch`: load a YAML config file. If omitted, lookup uses `./quadlet-updates.yaml`, then `$XDG_CONFIG_HOME/quadlet-updates/config.yaml` (typically `~/.config/quadlet-updates/config.yaml`).
 - `--progress` for `fetch`: show remote lookup progress on stderr
 
 ## Quadlet scanning
@@ -125,6 +125,13 @@ For non-empty prefixes other than `v`, the candidate version must also have the 
 ## Configuration
 
 `fetch` can use a YAML config to source selected image updates from GitHub Releases instead of registry tag listing. This is useful for GHCR repositories with very large tag lists.
+
+Default config lookup order:
+
+1. `./quadlet-updates.yaml`
+2. `$XDG_CONFIG_HOME/quadlet-updates/config.yaml` (typically `~/.config/quadlet-updates/config.yaml`)
+
+Use `--config PATH` to load a specific file instead.
 
 ```yaml
 github_releases:

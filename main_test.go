@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -73,6 +75,55 @@ func TestNormalizeImage(t *testing.T) {
 
 	if _, ok := normalizeImage("app.container", "oci:local"); ok {
 		t.Fatal("normalizeImage() accepted ignored transport")
+	}
+}
+
+func TestLoadConfigDefaultLookupOrder(t *testing.T) {
+	tmp := t.TempDir()
+	cwd := filepath.Join(tmp, "cwd")
+	xdg := filepath.Join(tmp, "xdg")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(xdg, "quadlet-updates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	xdgConfig := filepath.Join(xdg, "quadlet-updates", "config.yaml")
+	if err := os.WriteFile(xdgConfig, []byte("github_releases:\n  ghcr.io/example/xdg: owner/xdg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GitHubReleases["ghcr.io/example/xdg"]; got != "owner/xdg" {
+		t.Fatalf("loadConfig() XDG entry = %q", got)
+	}
+
+	cwdConfig := filepath.Join(cwd, cwdConfigPath)
+	if err := os.WriteFile(cwdConfig, []byte("github_releases:\n  ghcr.io/example/cwd: owner/cwd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = loadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GitHubReleases["ghcr.io/example/cwd"]; got != "owner/cwd" {
+		t.Fatalf("loadConfig() cwd entry = %q", got)
+	}
+	if _, ok := cfg.GitHubReleases["ghcr.io/example/xdg"]; ok {
+		t.Fatal("loadConfig() did not prefer cwd config over XDG config")
 	}
 }
 
