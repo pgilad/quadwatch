@@ -6,6 +6,7 @@ require (
 	github.com/google/go-containerregistry v0.21.5
 	github.com/hashicorp/go-version v1.9.0
 	gopkg.in/ini.v1 v1.67.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
