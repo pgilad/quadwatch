@@ -1,2 +1,11 @@
 [tools]
 go = "1.26.3"
+
+[tasks.build]
+description = "Build the quadwatch binary"
+run = "go build -o quadwatch ."
+
+[tasks.install]
+description = "Install the quadwatch binary to ~/.local/bin"
+depends = ["build"]
+run = "mkdir -p ~/.local/bin && cp quadwatch ~/.local/bin/quadwatch"
