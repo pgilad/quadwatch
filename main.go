@@ -43,7 +43,7 @@ const (
 	ansiBrightCyan   = "\x1b[1;36m"
 )
 
-const cwdConfigPath = "quadlet-updates.yaml"
+const cwdConfigPath = "quadwatch.yaml"
 
 var (
 	quadletImageKeys  = [][2]string{{"Container", "Image"}, {"Image", "Image"}, {"Volume", "Image"}}
@@ -101,11 +101,11 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `quadlet-updates finds container image updates in Quadlet files.
+	fmt.Fprintf(os.Stderr, `quadwatch finds container image updates in Quadlet files.
 
 Usage:
-  quadlet-updates images [--format json|csv|table] [--color auto|always|never] PATH
-  quadlet-updates fetch    [--format json|csv|table] [--color auto|always|never] [--all] [--config PATH] [--progress] PATH
+  quadwatch images [--format json|csv|table] [--color auto|always|never] PATH
+  quadwatch fetch    [--format json|csv|table] [--color auto|always|never] [--all] [--config PATH] [--progress] PATH
 
 Commands:
   images  List detected images and current tags
@@ -114,7 +114,7 @@ Commands:
 Options:
   --all          Show all images, including those without updates
   --color MODE   Colorize human-readable output: auto, always, never (default auto)
-  --config PATH  YAML config file (defaults to ./quadlet-updates.yaml, then XDG config)
+  --config PATH  YAML config file (defaults to ./quadwatch.yaml, then XDG config)
   --progress     Show remote lookup progress on stderr
 `)
 }
@@ -232,7 +232,7 @@ func defaultConfigPaths() ([]string, error) {
 	}
 	return []string{
 		cwdConfigPath,
-		filepath.Join(configDir, "quadlet-updates", "config.yaml"),
+		filepath.Join(configDir, "quadwatch", "config.yaml"),
 	}, nil
 }
 

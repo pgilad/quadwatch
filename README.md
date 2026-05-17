@@ -1,4 +1,4 @@
-# quadlet-updates
+# quadwatch
 
 <p align="center"><strong>Find container image updates in Quadlet files.</strong></p>
 
@@ -10,9 +10,9 @@
 
 Small Go CLI for finding container images in Quadlet files and checking registry tags for newer compatible versions.
 
-<code>quadlet-updates</code> recursively scans Quadlet files, extracts registry image references, lists remote tags, and reports the newest compatible tag using conservative prefix/suffix matching.
+<code>quadwatch</code> recursively scans Quadlet files, extracts registry image references, lists remote tags, and reports the newest compatible tag using conservative prefix/suffix matching.
 
-## Why use quadlet-updates
+## Why use quadwatch
 
 - Quadlet-aware scanning: reads `*.container`, `*.image`, and `*.volume` files.
 - Registry lookup: checks public registries and uses Docker credential auth through the default Docker keychain.
@@ -28,25 +28,25 @@ Small Go CLI for finding container images in Quadlet files and checking registry
 ### 1. Build
 
 ```bash
-go build -o quadlet-updates .
+go build -o quadwatch .
 ```
 
 ### 2. List images
 
 ```bash
-./quadlet-updates images --format table /path/to/quadlets
+./quadwatch images --format table /path/to/quadlets
 ```
 
 ### 3. Fetch available updates
 
 ```bash
-./quadlet-updates fetch --format csv /path/to/quadlets
+./quadwatch fetch --format csv /path/to/quadlets
 ```
 
 ### 4. Show all images and lookup progress
 
 ```bash
-./quadlet-updates fetch --all --progress --format table /path/to/quadlets
+./quadwatch fetch --all --progress --format table /path/to/quadlets
 ```
 
 ## Commands
@@ -62,7 +62,7 @@ Common options:
 - `--format json|csv|table`
 - `--color auto|always|never`: colorize human-readable table/progress output (default `auto`)
 - `--all` for `fetch`: show all images, including those without updates
-- `--config PATH` for `fetch`: load a YAML config file. If omitted, lookup uses `./quadlet-updates.yaml`, then `$XDG_CONFIG_HOME/quadlet-updates/config.yaml` (typically `~/.config/quadlet-updates/config.yaml`).
+- `--config PATH` for `fetch`: load a YAML config file. If omitted, lookup uses `./quadwatch.yaml`, then `$XDG_CONFIG_HOME/quadwatch/config.yaml` (typically `~/.config/quadwatch/config.yaml`).
 - `--progress` for `fetch`: show remote lookup progress on stderr
 
 ## Quadlet scanning
@@ -128,8 +128,8 @@ For non-empty prefixes other than `v`, the candidate version must also have the 
 
 Default config lookup order:
 
-1. `./quadlet-updates.yaml`
-2. `$XDG_CONFIG_HOME/quadlet-updates/config.yaml` (typically `~/.config/quadlet-updates/config.yaml`)
+1. `./quadwatch.yaml`
+2. `$XDG_CONFIG_HOME/quadwatch/config.yaml` (typically `~/.config/quadwatch/config.yaml`)
 
 Use `--config PATH` to load a specific file instead.
 
@@ -161,5 +161,5 @@ quadlet,image_name,current_tag,newest_tag,update,error
 
 ```bash
 go test ./...
-go build -o quadlet-updates .
+go build -o quadwatch .
 ```

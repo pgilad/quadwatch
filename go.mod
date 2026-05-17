@@ -1,4 +1,4 @@
-module github.com/pgilad/quadlet-updates
+module github.com/pgilad/quadwatch
 
 go 1.26.3
 

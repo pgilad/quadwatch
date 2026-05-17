@@ -97,7 +97,7 @@ func TestLoadConfigDefaultLookupOrder(t *testing.T) {
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(xdg, "quadlet-updates"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(xdg, "quadwatch"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,7 +111,7 @@ func TestLoadConfigDefaultLookupOrder(t *testing.T) {
 	}
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 
-	xdgConfig := filepath.Join(xdg, "quadlet-updates", "config.yaml")
+	xdgConfig := filepath.Join(xdg, "quadwatch", "config.yaml")
 	if err := os.WriteFile(xdgConfig, []byte("github_releases:\n  ghcr.io/example/xdg: owner/xdg\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
