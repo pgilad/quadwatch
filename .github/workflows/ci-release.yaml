@@ -1,9 +1,8 @@
-name: CI and Release
+name: CI
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -71,21 +70,9 @@ jobs:
           if-no-files-found: error
 
   build:
-    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    name: Build
     needs: [lint, test]
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -97,48 +84,4 @@ jobs:
           cache: true
 
       - name: Build binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          mkdir -p dist
-          version="${GITHUB_REF_NAME}"
-          go build -trimpath -ldflags="-s -w -X main.version=${version}" -o "dist/quadwatch-${GOOS}-${GOARCH}" .
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: quadwatch-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/quadwatch-${{ matrix.goos }}-${{ matrix.goarch }}
-          if-no-files-found: error
-
-  release:
-    name: Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-
-      - name: Package release assets
-        run: |
-          set -euo pipefail
-          mkdir -p release
-          for binary in dist/*/quadwatch-*; do
-            name="$(basename "$binary")"
-            chmod +x "$binary"
-            tar -C "$(dirname "$binary")" -czf "release/${name}.tar.gz" "$name"
-          done
-          cp scripts/install.sh release/install.sh
-          (cd release && shasum -a 256 *.tar.gz > checksums.txt)
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/*
-          generate_release_notes: true
+        run: go build -trimpath -o quadwatch .

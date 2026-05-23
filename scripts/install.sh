@@ -4,7 +4,7 @@ set -eu
 
 REPO="${QUADWATCH_INSTALL_REPO:-pgilad/quadwatch}"
 BASE_URL="${QUADWATCH_INSTALL_BASE_URL:-https://github.com/${REPO}/releases}"
-INSTALL_VERSION="${QUADWATCH_INSTALL_VERSION:-latest}"
+INSTALL_VERSION="${QUADWATCH_INSTALL_VERSION:-${QUADWATCH_INSTALL_RELEASE_DEFAULT_VERSION:-latest}}"
 INSTALL_DIR="${QUADWATCH_INSTALL_DIR:-${HOME:-}/.local/bin}"
 TARGET="${QUADWATCH_INSTALL_TARGET:-}"
 SUPPORTED_TARGETS="linux-amd64, linux-arm64, darwin-amd64, darwin-arm64"
@@ -181,8 +181,8 @@ verify_checksum "$archive_path" "$archive_name" "$checksums_path"
 
 section "Installing quadwatch"
 tar -xzf "$archive_path" -C "$tmpdir"
-binary_path="${tmpdir}/quadwatch-${TARGET}"
-[ -f "$binary_path" ] || fail "downloaded archive did not contain ${binary_path}"
+binary_path="${tmpdir}/quadwatch-${TARGET}/quadwatch"
+[ -f "$binary_path" ] || fail "downloaded archive did not contain the expected quadwatch-${TARGET}/quadwatch path"
 
 mkdir -p "$INSTALL_DIR"
 install_tmp_path="$(mktemp "${INSTALL_DIR}/.quadwatch.tmp.XXXXXX")"
