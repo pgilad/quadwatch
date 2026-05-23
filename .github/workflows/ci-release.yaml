@@ -14,9 +14,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  CGO_ENABLED: '0'
-
 jobs:
   lint:
     name: Lint
@@ -84,4 +81,6 @@ jobs:
           cache: true
 
       - name: Build binary
+        env:
+          CGO_ENABLED: '0'
         run: go build -trimpath -o quadwatch .
