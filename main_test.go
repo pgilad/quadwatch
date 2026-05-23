@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,6 +68,9 @@ func TestNewestCompatible(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("newestCompatible() error = %v, wantErr %v", err, tt.wantErr)
 			}
+			if tt.wantErr && err != errUnsupportedTagShape {
+				t.Fatalf("newestCompatible() error = %v, want unsupported tag shape", err)
+			}
 			if got != tt.want {
 				t.Fatalf("newestCompatible() = %q, want %q", got, tt.want)
 			}
@@ -74,19 +78,193 @@ func TestNewestCompatible(t *testing.T) {
 	}
 }
 
+func TestScanImagesReturnsParseErrors(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	badQuadlet := filepath.Join(dir, "bad.container")
+	if err := os.WriteFile(badQuadlet, []byte("[Container\nImage=postgres:16\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := scanImages(dir)
+	if err == nil {
+		t.Fatal("scanImages() succeeded with malformed quadlet")
+	}
+	if got := err.Error(); !strings.Contains(got, "parse quadlet") || !strings.Contains(got, badQuadlet) {
+		t.Fatalf("scanImages() error = %q, want parse error with path", got)
+	}
+}
+
+func TestUnsupportedTagShapeIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	fetcher := updateFetcher{
+		githubReleaseCache: map[string]githubReleaseResult{
+			"owner/repo": {tag: "v1.2.3"},
+		},
+	}
+	update := fetcher.fetchOneGitHubRelease(t.Context(), Image{
+		File:       "app.container",
+		Image:      "example/app:latest",
+		Repository: "example/app",
+		Tag:        "latest",
+	}, "owner/repo")
+	if update.Error != "" {
+		t.Fatalf("fetchOneGitHubRelease() error = %q", update.Error)
+	}
+	if update.SkipReason != "unsupported tag shape" {
+		t.Fatalf("fetchOneGitHubRelease() skip reason = %q", update.SkipReason)
+	}
+	if update.Update {
+		t.Fatal("fetchOneGitHubRelease() marked skipped image as update")
+	}
+	if got := updateStatus(update); got != "skipped" {
+		t.Fatalf("updateStatus() = %q, want skipped", got)
+	}
+}
+
 func TestNormalizeImage(t *testing.T) {
 	t.Parallel()
 
-	img, ok := normalizeImage("app.container", "postgres:16")
-	if !ok {
-		t.Fatal("normalizeImage() did not accept registry image")
-	}
-	if img.Repository != "index.docker.io/library/postgres" || img.Tag != "16" {
-		t.Fatalf("normalizeImage() = %#v", img)
+	tests := []struct {
+		name      string
+		raw       string
+		wantOK    bool
+		wantImage string
+		wantRepo  string
+		wantTag   string
+	}{
+		{
+			name:      "docker hub library default registry",
+			raw:       "postgres:16",
+			wantOK:    true,
+			wantImage: "postgres:16",
+			wantRepo:  "index.docker.io/library/postgres",
+			wantTag:   "16",
+		},
+		{
+			name:      "untagged image defaults to latest",
+			raw:       "ghcr.io/owner/app",
+			wantOK:    true,
+			wantImage: "ghcr.io/owner/app",
+			wantRepo:  "ghcr.io/owner/app",
+			wantTag:   "latest",
+		},
+		{
+			name:      "docker transport is stripped before parsing",
+			raw:       "docker://ghcr.io/owner/app:v1.2.3",
+			wantOK:    true,
+			wantImage: "ghcr.io/owner/app:v1.2.3",
+			wantRepo:  "ghcr.io/owner/app",
+			wantTag:   "v1.2.3",
+		},
+		{
+			name:   "ignored local transport",
+			raw:    "oci:local",
+			wantOK: false,
+		},
 	}
 
-	if _, ok := normalizeImage("app.container", "oci:local"); ok {
-		t.Fatal("normalizeImage() accepted ignored transport")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			img, ok := normalizeImage("app.container", tt.raw)
+			if ok != tt.wantOK {
+				t.Fatalf("normalizeImage() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if img.Image != tt.wantImage || img.Repository != tt.wantRepo || img.Tag != tt.wantTag {
+				t.Fatalf("normalizeImage() = %#v", img)
+			}
+		})
+	}
+}
+
+func TestParseQuadletExtractsSupportedSectionsAndSkipsLocalTransports(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "app.container")
+	data := []byte(`
+[Container]
+Image=docker://ghcr.io/example/app:v1.2.3
+
+[Image]
+Image=quay.io/example/sidecar:2.0
+
+[Volume]
+Image=oci:local-volume
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	images, err := parseQuadlet(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 2 {
+		t.Fatalf("parseQuadlet() found %d images, want 2: %#v", len(images), images)
+	}
+	assertImage := func(index int, repo, tag string) {
+		t.Helper()
+		if images[index].File != path || images[index].Repository != repo || images[index].Tag != tag {
+			t.Fatalf("image[%d] = %#v", index, images[index])
+		}
+	}
+	assertImage(0, "ghcr.io/example/app", "v1.2.3")
+	assertImage(1, "quay.io/example/sidecar", "2.0")
+}
+
+func TestScanImagesRecursesAndIgnoresUnsupportedFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ignored.service"), []byte("[Container]\nImage=postgres:16\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "app.image"), []byte("[Image]\nImage=ghcr.io/example/app:1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	images, err := scanImages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("scanImages() found %d images, want 1: %#v", len(images), images)
+	}
+	if images[0].Repository != "ghcr.io/example/app" || images[0].Tag != "1.0.0" {
+		t.Fatalf("scanImages() = %#v", images[0])
+	}
+}
+
+func TestFetchOneGitHubReleaseUsesLatestReleaseTagCompatibility(t *testing.T) {
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(ghPath, []byte("#!/bin/sh\nprintf '%s\\n' 'v1.3.0'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	fetcher := &updateFetcher{githubReleaseCache: map[string]githubReleaseResult{}}
+	update := fetcher.fetchOneGitHubRelease(t.Context(), Image{
+		File:       "app.container",
+		Image:      "ghcr.io/example/app:v1.2.0",
+		Repository: "ghcr.io/example/app",
+		Tag:        "v1.2.0",
+	}, "owner/repo")
+	if update.Error != "" {
+		t.Fatalf("fetchOneGitHubRelease() error = %q", update.Error)
+	}
+	if !update.Update || update.NewestTag != "v1.3.0" {
+		t.Fatalf("fetchOneGitHubRelease() = %#v", update)
 	}
 }
 

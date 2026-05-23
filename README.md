@@ -139,6 +139,19 @@ github_releases:
   ghcr.io/immich-app/immich-machine-learning: immich-app/immich
 ```
 
+Config keys must use quadwatch's normalized repository name, not necessarily the image text as it appears in the Quadlet file. Quadwatch applies Docker-style defaults while scanning: Docker Hub images are normalized to `index.docker.io`, official Docker Hub images include the `library/` namespace, and tags are not part of the config key.
+
+Examples:
+
+| Quadlet `Image=` value | Config key |
+|---|---|
+| `postgres:16` | `index.docker.io/library/postgres` |
+| `docker.io/library/postgres:16` | `index.docker.io/library/postgres` |
+| `ghcr.io/immich-app/immich-server:v2.1.0` | `ghcr.io/immich-app/immich-server` |
+| `quay.io/prometheus/prometheus:v3.0.0` | `quay.io/prometheus/prometheus` |
+
+You can run `quadwatch images --format table PATH` to see the exact repository names to use as config keys.
+
 Configured entries run `gh release view -R <repo> --json tagName -q .tagName`, then compare that release tag using the same compatibility rules as registry tags. The `gh` CLI must be installed and authenticated if the GitHub request requires it.
 
 ## Output
@@ -153,9 +166,11 @@ quadlet,image_name,current_tag
 ### Updates CSV
 
 ```csv
-quadlet,image_name,current_tag,newest_tag,update,error
-/path/sonarr.container,ghcr.io/hotio/sonarr,release-4.0.16.2944,release-4.0.17.2952,true,
+quadlet,image_name,current_tag,newest_tag,update,skip_reason,error
+/path/sonarr.container,ghcr.io/hotio/sonarr,release-4.0.16.2944,release-4.0.17.2952,true,,
 ```
+
+Non-version-like current tags, such as `latest`, are reported as skipped with `skip_reason=unsupported tag shape` when included with `fetch --all`; they are not treated as lookup errors.
 
 ## Development
 
