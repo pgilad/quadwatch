@@ -20,8 +20,8 @@ const (
 var version = versionDev
 
 func runVersion() error {
-	fmt.Fprintln(os.Stdout, version)
-	return nil
+	_, err := fmt.Fprintln(os.Stdout, version)
+	return err
 }
 
 func runSelfUpdate(args []string) error {
@@ -34,8 +34,8 @@ func runSelfUpdate(args []string) error {
 		return err
 	}
 	if version != versionDev && version == latest {
-		fmt.Fprintf(os.Stdout, "quadwatch is already up to date (%s)\n", version)
-		return nil
+		_, err := fmt.Fprintf(os.Stdout, "quadwatch is already up to date (%s)\n", version)
+		return err
 	}
 
 	exe, err := os.Executable()
@@ -44,7 +44,9 @@ func runSelfUpdate(args []string) error {
 	}
 	installDir := filepath.Dir(exe)
 
-	fmt.Fprintf(os.Stderr, "Updating quadwatch from %s to %s\n", version, latest)
+	if _, err := fmt.Fprintf(os.Stderr, "Updating quadwatch from %s to %s\n", version, latest); err != nil {
+		return err
+	}
 	installer, err := downloadInstaller()
 	if err != nil {
 		return err
@@ -69,8 +71,8 @@ func runUninstall(args []string) error {
 	if err := os.Remove(exe); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "removed %s\n", exe)
-	return nil
+	_, err = fmt.Fprintf(os.Stdout, "removed %s\n", exe)
+	return err
 }
 
 type githubRelease struct {
@@ -83,7 +85,7 @@ func latestReleaseTag() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
@@ -102,7 +104,7 @@ func downloadInstaller() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("GET %s: %s", installURL, resp.Status)
 	}

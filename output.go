@@ -63,8 +63,8 @@ func outputUpdates(updates []Update, format string, colors colors) error {
 		return w.Error()
 	case "table":
 		if len(updates) == 0 {
-			fmt.Fprintln(os.Stdout, colors.green("No images have an update."))
-			return nil
+			_, err := fmt.Fprintln(os.Stdout, colors.green("No images have an update."))
+			return err
 		}
 		rows := make([][]string, 0, len(updates))
 		for _, u := range updates {
