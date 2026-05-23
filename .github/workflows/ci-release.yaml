@@ -102,7 +102,8 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          go build -trimpath -ldflags='-s -w' -o "dist/quadwatch-${GOOS}-${GOARCH}" .
+          version="${GITHUB_REF_NAME}"
+          go build -trimpath -ldflags="-s -w -X main.version=${version}" -o "dist/quadwatch-${GOOS}-${GOARCH}" .
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -133,6 +134,7 @@ jobs:
             chmod +x "$binary"
             tar -C "$(dirname "$binary")" -czf "release/${name}.tar.gz" "$name"
           done
+          cp scripts/install.sh release/install.sh
           (cd release && shasum -a 256 *.tar.gz > checksums.txt)
 
       - name: Create GitHub release

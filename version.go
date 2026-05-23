@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hashicorp/go-version"
+	hcversion "github.com/hashicorp/go-version"
 )
 
 var (
@@ -18,14 +18,14 @@ func newestCompatible(current string, tags []string) (string, error) {
 	if cm == nil {
 		return "", errUnsupportedTagShape
 	}
-	curVer, err := version.NewVersion(cm[2])
+	curVer, err := hcversion.NewVersion(cm[2])
 	if err != nil {
 		return "", err
 	}
 	prefix, suffix := cm[1], cm[3]
 	currentSegments := strings.Count(cm[2], ".") + 1
 	var newestTag string
-	var newestVersion *version.Version
+	var newestVersion *hcversion.Version
 	for _, tag := range tags {
 		m := versionRe.FindStringSubmatch(tag)
 		if m == nil || m[1] != prefix || m[3] != suffix {
@@ -38,7 +38,7 @@ func newestCompatible(current string, tags []string) (string, error) {
 		if prefix != "" && prefix != "v" && candidateSegments != currentSegments {
 			continue
 		}
-		v, err := version.NewVersion(m[2])
+		v, err := hcversion.NewVersion(m[2])
 		if err != nil {
 			continue
 		}

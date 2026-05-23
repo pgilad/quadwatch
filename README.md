@@ -25,7 +25,13 @@ Small Go CLI for finding container images in Quadlet files and checking registry
 
 ## Quick Start
 
-### 1. Build
+### 1. Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh | sh
+```
+
+Or build from source:
 
 ```bash
 go build -o quadwatch .
@@ -55,6 +61,9 @@ go build -o quadwatch .
 |---|---|
 | `images PATH` | List detected images and current tags |
 | `fetch PATH` | List images with newer compatible remote tags |
+| `self-update` | Check the latest GitHub release and update the installed binary |
+| `uninstall` | Remove the current `quadwatch` binary |
+| `version` | Print the current version |
 | `help` | Print usage |
 
 Common options:
@@ -171,6 +180,27 @@ quadlet,image_name,current_tag,newest_tag,update,skip_reason,error
 ```
 
 Non-version-like current tags, such as `latest`, are reported as skipped with `skip_reason=unsupported tag shape` when included with `fetch --all`; they are not treated as lookup errors.
+
+## Install and update
+
+Install the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh | sh
+```
+
+Install a specific release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh | sh -s -- --version v0.1.0
+```
+
+Update or uninstall later:
+
+```bash
+quadwatch self-update
+quadwatch uninstall
+```
 
 ## Development
 
