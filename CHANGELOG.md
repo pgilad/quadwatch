@@ -1,1 +1,23 @@
 # Changelog
+
+## 2026.05.23-5
+
+- Initial quadlet updates CLI (3ce4fb1)
+- Add configurable update fetching (fed23bf)
+- Use XDG config fallback (dede32d)
+- Fix compatible tag version selection (4cd46db)
+- Rename project to quadwatch (d60057c)
+- Add mise build and install tasks (7842c42)
+- Add CI and release workflow (698fe2a)
+- Improve test coverage and refactor CLI (b7874cc)
+- Add installer and self-update commands (8a0efa1)
+- Add scheduled release workflow (480f877)
+- Use golangci-lint action v7 (41dd6d7)
+- Use Go 1.25 for lint compatibility (db283a1)
+- Use golangci-lint action v9 (69607f1)
+- Use Go 1.26.3 (f2b1545)
+- Fix lint errors (ec90ab3)
+- Enable cgo for race tests (d13fef6)
+- Remove pull request CI trigger (2abf9fd)
+- chore: update GitHub Actions versions (1b565b1)
+- chore: update golangci-lint version (969979b)
