@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.05.23-6
+
+- Add License (a0b2986)
+
 ## 2026.05.23-5
 
 - Initial quadlet updates CLI (3ce4fb1)
