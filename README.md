@@ -93,6 +93,7 @@ The parser intentionally mirrors the subset used by Renovate's Quadlet manager:
 - Skips local/non-registry transports like `dir:`, `oci:`, `docker-archive:`, `oci-archive:`, `containers-storage:`, and `sif:`.
 - Strips `docker://` and `docker-daemon:` prefixes.
 - Applies Docker-style defaults: `docker.io` registry and `latest` tag when omitted.
+- Detects digest-pinned references such as `repo:tag@sha256:...`; `fetch` skips them with `skip_reason=digest-pinned image` because the digest, not the tag, controls what runs.
 
 ## Tag compatibility
 

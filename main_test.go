@@ -145,16 +145,38 @@ func TestFetchOneRegistrySkipsUnsupportedTagBeforeRepositoryParsing(t *testing.T
 	}
 }
 
+func TestDigestPinnedImageIsSkippedBeforeRepositoryParsing(t *testing.T) {
+	t.Parallel()
+
+	update := fetchOneRegistry(t.Context(), Image{
+		File:       "app.container",
+		Image:      "not a valid repo:1.2.3@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Repository: "not a valid repo",
+		Tag:        "1.2.3",
+		Digest:     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	})
+	if update.Error != "" {
+		t.Fatalf("fetchOneRegistry() error = %q", update.Error)
+	}
+	if update.SkipReason != "digest-pinned image" {
+		t.Fatalf("fetchOneRegistry() skip reason = %q", update.SkipReason)
+	}
+	if update.Update {
+		t.Fatal("fetchOneRegistry() marked digest-pinned image as update")
+	}
+}
+
 func TestNormalizeImage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		raw       string
-		wantOK    bool
-		wantImage string
-		wantRepo  string
-		wantTag   string
+		name       string
+		raw        string
+		wantOK     bool
+		wantImage  string
+		wantRepo   string
+		wantTag    string
+		wantDigest string
 	}{
 		{
 			name:      "docker hub library default registry",
@@ -181,6 +203,24 @@ func TestNormalizeImage(t *testing.T) {
 			wantTag:   "v1.2.3",
 		},
 		{
+			name:       "digest pinned image with tag",
+			raw:        "ghcr.io/owner/app:1.2.3@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			wantOK:     true,
+			wantImage:  "ghcr.io/owner/app:1.2.3@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			wantRepo:   "ghcr.io/owner/app",
+			wantTag:    "1.2.3",
+			wantDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+		{
+			name:       "digest pinned image without tag",
+			raw:        "ghcr.io/owner/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			wantOK:     true,
+			wantImage:  "ghcr.io/owner/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			wantRepo:   "ghcr.io/owner/app",
+			wantTag:    "",
+			wantDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+		{
 			name:   "ignored local transport",
 			raw:    "oci:local",
 			wantOK: false,
@@ -197,7 +237,7 @@ func TestNormalizeImage(t *testing.T) {
 			if !tt.wantOK {
 				return
 			}
-			if img.Image != tt.wantImage || img.Repository != tt.wantRepo || img.Tag != tt.wantTag {
+			if img.Image != tt.wantImage || img.Repository != tt.wantRepo || img.Tag != tt.wantTag || img.Digest != tt.wantDigest {
 				t.Fatalf("normalizeImage() = %#v", img)
 			}
 		})
@@ -335,6 +375,32 @@ func TestLoadConfigDefaultLookupOrder(t *testing.T) {
 	}
 	if _, ok := cfg.GitHubReleases["ghcr.io/example/xdg"]; ok {
 		t.Fatal("loadConfig() did not prefer cwd config over XDG config")
+	}
+}
+
+func TestUpdatesWithAvailableUpdatesOrErrors(t *testing.T) {
+	t.Parallel()
+
+	updates := updatesWithAvailableUpdatesOrErrors([]Update{
+		{Repository: "example/ok", CurrentTag: "1.0.0", NewestTag: "", Update: false},
+		{Repository: "example/update", CurrentTag: "1.0.0", NewestTag: "1.1.0", Update: true},
+		{Repository: "example/skipped", CurrentTag: "latest", SkipReason: "unsupported tag shape"},
+		{Repository: "example/error", CurrentTag: "1.0.0", Error: "lookup failed"},
+	})
+	if len(updates) != 2 {
+		t.Fatalf("updatesWithAvailableUpdatesOrErrors() length = %d, want 2: %#v", len(updates), updates)
+	}
+	if updates[0].Repository != "example/update" || updates[1].Repository != "example/error" {
+		t.Fatalf("updatesWithAvailableUpdatesOrErrors() = %#v", updates)
+	}
+}
+
+func TestUpdateErrorCount(t *testing.T) {
+	t.Parallel()
+
+	got := updateErrorCount([]Update{{Error: "one"}, {SkipReason: "skip"}, {Error: "two"}})
+	if got != 2 {
+		t.Fatalf("updateErrorCount() = %d, want 2", got)
 	}
 }
 

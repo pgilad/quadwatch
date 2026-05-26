@@ -81,8 +81,23 @@ func normalizeImage(file, raw string) (Image, bool) {
 	}
 	repo := ref.Context().Name()
 	tag := "latest"
+	digest := ""
 	if t, ok := ref.(name.Tag); ok {
 		tag = t.TagStr()
 	}
-	return Image{File: file, Image: raw, Repository: repo, Tag: tag}, true
+	if d, ok := ref.(name.Digest); ok {
+		digest = d.DigestStr()
+		tag = tagBeforeDigest(raw)
+	}
+	return Image{File: file, Image: raw, Repository: repo, Tag: tag, Digest: digest}, true
+}
+
+func tagBeforeDigest(raw string) string {
+	namePart, _, _ := strings.Cut(raw, "@")
+	lastSlash := strings.LastIndex(namePart, "/")
+	lastColon := strings.LastIndex(namePart, ":")
+	if lastColon > lastSlash {
+		return namePart[lastColon+1:]
+	}
+	return ""
 }

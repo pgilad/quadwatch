@@ -64,12 +64,22 @@ func newestCompatible(current string, tags []string) (string, error) {
 	return newestTag, nil
 }
 
-func updatesWithAvailableUpdates(updates []Update) []Update {
+func updatesWithAvailableUpdatesOrErrors(updates []Update) []Update {
 	filtered := updates[:0]
 	for _, u := range updates {
-		if u.Update {
+		if u.Update || u.Error != "" {
 			filtered = append(filtered, u)
 		}
 	}
 	return filtered
+}
+
+func updateErrorCount(updates []Update) int {
+	count := 0
+	for _, u := range updates {
+		if u.Error != "" {
+			count++
+		}
+	}
+	return count
 }

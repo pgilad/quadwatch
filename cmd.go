@@ -65,9 +65,15 @@ func runFetch(args []string) error {
 	defer stop()
 	updates := fetchUpdates(ctx, images, cfg, *progress, stderrColors)
 	if !*all {
-		updates = updatesWithAvailableUpdates(updates)
+		updates = updatesWithAvailableUpdatesOrErrors(updates)
 	}
-	return outputUpdates(updates, *format, stdoutColors)
+	if err := outputUpdates(updates, *format, stdoutColors); err != nil {
+		return err
+	}
+	if count := updateErrorCount(updates); count > 0 {
+		return fmt.Errorf("%d image lookup(s) failed", count)
+	}
+	return nil
 }
 func pathArg(fs *flag.FlagSet) (string, error) {
 	switch fs.NArg() {

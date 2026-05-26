@@ -124,6 +124,10 @@ func newUpdate(img Image) Update {
 
 func skipUnsupportedCurrentTag(img Image) (Update, bool) {
 	u := newUpdate(img)
+	if img.Digest != "" {
+		u.SkipReason = "digest-pinned image"
+		return u, true
+	}
 	if _, err := parseVersionTag(img.Tag); err != nil {
 		if errors.Is(err, errUnsupportedTagShape) {
 			u.SkipReason = err.Error()

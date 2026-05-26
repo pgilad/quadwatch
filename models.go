@@ -7,6 +7,7 @@ type Image struct {
 	Image      string `json:"image"`
 	Repository string `json:"repository"`
 	Tag        string `json:"tag"`
+	Digest     string `json:"digest,omitempty"`
 }
 
 type Update struct {
