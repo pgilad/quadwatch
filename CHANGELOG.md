@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.05.26-9
+
+- fix: improve fetch reliability and output consistency (ca979bc)
+- fix: cache registry lookups and support cancellation (42c2224)
+- fix: skip digest-pinned images and surface fetch errors (2825ea1)
+
 ## 2026.05.23-6
 
 - Add License (a0b2986)
