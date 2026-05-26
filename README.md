@@ -3,7 +3,7 @@
 <p align="center"><strong>Find container image updates in Quadlet files.</strong></p>
 
 <p align="center">
-  <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.25%2B-00ADD8.svg" alt="Go 1.25+" /></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.26.3%2B-00ADD8.svg" alt="Go 1.26.3+" /></a>
   <img src="https://img.shields.io/badge/quadlet-container%20images-blue.svg" alt="Quadlet container images" />
   <img src="https://img.shields.io/badge/output-json%20%7C%20csv%20%7C%20table-555.svg" alt="JSON, CSV, and table output" />
 </p>
@@ -194,7 +194,7 @@ curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/insta
 Install a specific release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh | sh -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh | sh -s -- --version 2026.05.23-5
 ```
 
 Update or uninstall later:

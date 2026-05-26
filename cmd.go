@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 )
 
@@ -60,7 +61,9 @@ func runFetch(args []string) error {
 	if err != nil {
 		return err
 	}
-	updates := fetchUpdates(context.Background(), images, cfg, *progress, stderrColors)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	updates := fetchUpdates(ctx, images, cfg, *progress, stderrColors)
 	if !*all {
 		updates = updatesWithAvailableUpdates(updates)
 	}

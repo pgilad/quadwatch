@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -26,6 +27,7 @@ func fetchUpdates(ctx context.Context, images []Image, cfg Config, progress bool
 	fetcher := &updateFetcher{
 		config:             cfg,
 		githubReleaseCache: map[string]githubReleaseResult{},
+		registryTagCache:   map[string]registryTagResult{},
 	}
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrentRemoteLookups)
@@ -93,6 +95,10 @@ type updateFetcher struct {
 
 	githubReleaseMu    sync.Mutex
 	githubReleaseCache map[string]githubReleaseResult
+
+	registryTagMu    sync.Mutex
+	registryTagCache map[string]registryTagResult
+	registryTagGroup singleflight.Group
 }
 
 type githubReleaseResult struct {
@@ -100,11 +106,16 @@ type githubReleaseResult struct {
 	err error
 }
 
+type registryTagResult struct {
+	tags []string
+	err  error
+}
+
 func (f *updateFetcher) fetchOne(ctx context.Context, img Image) Update {
 	if githubRepo, ok := f.config.GitHubReleases[img.Repository]; ok {
 		return f.fetchOneGitHubRelease(ctx, img, githubRepo)
 	}
-	return fetchOneRegistry(ctx, img)
+	return f.fetchOneRegistry(ctx, img)
 }
 
 func newUpdate(img Image) Update {
@@ -180,18 +191,16 @@ func (f *updateFetcher) latestGitHubRelease(ctx context.Context, githubRepo stri
 }
 
 func fetchOneRegistry(ctx context.Context, img Image) Update {
+	fetcher := &updateFetcher{registryTagCache: map[string]registryTagResult{}}
+	return fetcher.fetchOneRegistry(ctx, img)
+}
+
+func (f *updateFetcher) fetchOneRegistry(ctx context.Context, img Image) Update {
 	u, skipped := skipUnsupportedCurrentTag(img)
 	if skipped {
 		return u
 	}
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
-	repo, err := name.NewRepository(img.Repository)
-	if err != nil {
-		u.Error = err.Error()
-		return u
-	}
-	tags, err := remote.List(repo, remote.WithContext(ctx), remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	tags, err := f.registryTags(ctx, img.Repository)
 	if err != nil {
 		u.Error = err.Error()
 		return u
@@ -208,4 +217,42 @@ func fetchOneRegistry(ctx context.Context, img Image) Update {
 	u.NewestTag = newest
 	u.Update = newest != "" && newest != img.Tag
 	return u
+}
+
+func (f *updateFetcher) registryTags(ctx context.Context, repository string) ([]string, error) {
+	f.registryTagMu.Lock()
+	if cached, ok := f.registryTagCache[repository]; ok {
+		f.registryTagMu.Unlock()
+		return cached.tags, cached.err
+	}
+	f.registryTagMu.Unlock()
+
+	result, _, _ := f.registryTagGroup.Do(repository, func() (any, error) {
+		f.registryTagMu.Lock()
+		if cached, ok := f.registryTagCache[repository]; ok {
+			f.registryTagMu.Unlock()
+			return cached, nil
+		}
+		f.registryTagMu.Unlock()
+
+		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+		repo, err := name.NewRepository(repository)
+		var tags []string
+		if err == nil {
+			tags, err = remote.List(repo, remote.WithContext(ctx), remote.WithAuthFromKeychain(authn.DefaultKeychain))
+			if tags != nil {
+				tags = append([]string(nil), tags...)
+			}
+		}
+		cached := registryTagResult{tags: tags, err: err}
+
+		f.registryTagMu.Lock()
+		f.registryTagCache[repository] = cached
+		f.registryTagMu.Unlock()
+		return cached, nil
+	})
+
+	cached := result.(registryTagResult)
+	return cached.tags, cached.err
 }
