@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/csv"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,14 +98,10 @@ func TestScanImagesReturnsParseErrors(t *testing.T) {
 	}
 }
 
-func TestUnsupportedTagShapeIsSkipped(t *testing.T) {
-	t.Parallel()
+func TestUnsupportedTagShapeIsSkippedWithoutGitHubLookup(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 
-	fetcher := updateFetcher{
-		githubReleaseCache: map[string]githubReleaseResult{
-			"owner/repo": {tag: "v1.2.3"},
-		},
-	}
+	fetcher := updateFetcher{githubReleaseCache: map[string]githubReleaseResult{}}
 	update := fetcher.fetchOneGitHubRelease(t.Context(), Image{
 		File:       "app.container",
 		Image:      "example/app:latest",
@@ -121,6 +119,29 @@ func TestUnsupportedTagShapeIsSkipped(t *testing.T) {
 	}
 	if got := updateStatus(update); got != "skipped" {
 		t.Fatalf("updateStatus() = %q, want skipped", got)
+	}
+	if len(fetcher.githubReleaseCache) != 0 {
+		t.Fatal("fetchOneGitHubRelease() looked up GitHub release for unsupported tag")
+	}
+}
+
+func TestFetchOneRegistrySkipsUnsupportedTagBeforeRepositoryParsing(t *testing.T) {
+	t.Parallel()
+
+	update := fetchOneRegistry(t.Context(), Image{
+		File:       "app.container",
+		Image:      "not a valid repo:latest",
+		Repository: "not a valid repo",
+		Tag:        "latest",
+	})
+	if update.Error != "" {
+		t.Fatalf("fetchOneRegistry() error = %q", update.Error)
+	}
+	if update.SkipReason != "unsupported tag shape" {
+		t.Fatalf("fetchOneRegistry() skip reason = %q", update.SkipReason)
+	}
+	if update.Update {
+		t.Fatal("fetchOneRegistry() marked skipped image as update")
 	}
 }
 
@@ -315,6 +336,81 @@ func TestLoadConfigDefaultLookupOrder(t *testing.T) {
 	if _, ok := cfg.GitHubReleases["ghcr.io/example/xdg"]; ok {
 		t.Fatal("loadConfig() did not prefer cwd config over XDG config")
 	}
+}
+
+func TestOutputUpdatesCSVIncludesSkipReason(t *testing.T) {
+	output := captureStdout(t, func() {
+		if err := outputUpdates([]Update{
+			{
+				File:       "app.container",
+				Repository: "example/app",
+				CurrentTag: "latest",
+				SkipReason: "unsupported tag shape",
+			},
+		}, "csv", colors{}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	records, err := csv.NewReader(strings.NewReader(output)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHeader := []string{"quadlet", "image_name", "current_tag", "newest_tag", "update", "skip_reason", "error"}
+	if strings.Join(records[0], ",") != strings.Join(wantHeader, ",") {
+		t.Fatalf("CSV header = %#v, want %#v", records[0], wantHeader)
+	}
+	if got := records[1][5]; got != "unsupported tag shape" {
+		t.Fatalf("CSV skip_reason = %q", got)
+	}
+}
+
+func TestOutputUpdatesTableIncludesStatusAndDetails(t *testing.T) {
+	output := captureStdout(t, func() {
+		if err := outputUpdates([]Update{
+			{
+				File:       "app.container",
+				Repository: "example/app",
+				CurrentTag: "latest",
+				SkipReason: "unsupported tag shape",
+			},
+		}, "table", colors{}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(output, "STATUS") || !strings.Contains(output, "DETAILS") {
+		t.Fatalf("table output missing status/details columns:\n%s", output)
+	}
+	if !strings.Contains(output, "skipped") || !strings.Contains(output, "unsupported tag shape") {
+		t.Fatalf("table output missing skipped details:\n%s", output)
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }
 
 func TestPathArg(t *testing.T) {

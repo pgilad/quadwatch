@@ -13,40 +13,53 @@ var (
 	versionRe              = regexp.MustCompile(`^([^0-9]*?)([0-9]+(?:\.[0-9]+){0,3})(.*)$`)
 )
 
-func newestCompatible(current string, tags []string) (string, error) {
-	cm := versionRe.FindStringSubmatch(current)
-	if cm == nil {
-		return "", errUnsupportedTagShape
+type parsedVersionTag struct {
+	prefix   string
+	version  *hcversion.Version
+	suffix   string
+	segments int
+}
+
+func parseVersionTag(tag string) (parsedVersionTag, error) {
+	m := versionRe.FindStringSubmatch(tag)
+	if m == nil {
+		return parsedVersionTag{}, errUnsupportedTagShape
 	}
-	curVer, err := hcversion.NewVersion(cm[2])
+	v, err := hcversion.NewVersion(m[2])
+	if err != nil {
+		return parsedVersionTag{}, err
+	}
+	return parsedVersionTag{
+		prefix:   m[1],
+		version:  v,
+		suffix:   m[3],
+		segments: strings.Count(m[2], ".") + 1,
+	}, nil
+}
+
+func newestCompatible(current string, tags []string) (string, error) {
+	currentTag, err := parseVersionTag(current)
 	if err != nil {
 		return "", err
 	}
-	prefix, suffix := cm[1], cm[3]
-	currentSegments := strings.Count(cm[2], ".") + 1
 	var newestTag string
 	var newestVersion *hcversion.Version
 	for _, tag := range tags {
-		m := versionRe.FindStringSubmatch(tag)
-		if m == nil || m[1] != prefix || m[3] != suffix {
+		candidate, err := parseVersionTag(tag)
+		if err != nil || candidate.prefix != currentTag.prefix || candidate.suffix != currentTag.suffix {
 			continue
 		}
-		candidateSegments := strings.Count(m[2], ".") + 1
-		if candidateSegments < currentSegments {
+		if candidate.segments < currentTag.segments {
 			continue
 		}
-		if prefix != "" && prefix != "v" && candidateSegments != currentSegments {
+		if currentTag.prefix != "" && currentTag.prefix != "v" && candidate.segments != currentTag.segments {
 			continue
 		}
-		v, err := hcversion.NewVersion(m[2])
-		if err != nil {
-			continue
-		}
-		if !v.GreaterThan(curVer) || (newestVersion != nil && !v.GreaterThan(newestVersion)) {
+		if !candidate.version.GreaterThan(currentTag.version) || (newestVersion != nil && !candidate.version.GreaterThan(newestVersion)) {
 			continue
 		}
 		newestTag = tag
-		newestVersion = v
+		newestVersion = candidate.version
 	}
 	return newestTag, nil
 }

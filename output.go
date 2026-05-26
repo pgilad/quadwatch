@@ -52,11 +52,11 @@ func outputUpdates(updates []Update, format string, colors colors) error {
 	case "csv":
 		w := csv.NewWriter(os.Stdout)
 		defer w.Flush()
-		if err := w.Write([]string{"quadlet", "image_name", "current_tag", "newest_tag", "update", "error"}); err != nil {
+		if err := w.Write([]string{"quadlet", "image_name", "current_tag", "newest_tag", "update", "skip_reason", "error"}); err != nil {
 			return err
 		}
 		for _, u := range updates {
-			if err := w.Write([]string{u.File, u.Repository, u.CurrentTag, u.NewestTag, fmt.Sprint(u.Update), u.Error}); err != nil {
+			if err := w.Write([]string{u.File, u.Repository, u.CurrentTag, u.NewestTag, fmt.Sprint(u.Update), u.SkipReason, u.Error}); err != nil {
 				return err
 			}
 		}
@@ -68,9 +68,9 @@ func outputUpdates(updates []Update, format string, colors colors) error {
 		}
 		rows := make([][]string, 0, len(updates))
 		for _, u := range updates {
-			rows = append(rows, []string{u.File, u.Repository, u.CurrentTag, u.NewestTag, u.Error})
+			rows = append(rows, []string{u.File, u.Repository, u.CurrentTag, u.NewestTag, updateStatus(u), updateDetails(u)})
 		}
-		return writeTable(os.Stdout, []string{"QUADLET", "IMAGE", "CURRENT", "NEWEST", "ERROR"}, rows, colors, func(row int, col int, text string) string {
+		return writeTable(os.Stdout, []string{"QUADLET", "IMAGE", "CURRENT", "NEWEST", "STATUS", "DETAILS"}, rows, colors, func(row int, col int, text string) string {
 			u := updates[row]
 			switch col {
 			case 0:
@@ -88,6 +88,8 @@ func outputUpdates(updates []Update, format string, colors colors) error {
 				}
 				return colors.dim(text)
 			case 4:
+				return colors.status(text)
+			case 5:
 				if u.Error != "" {
 					return colors.red(text)
 				}
@@ -99,4 +101,11 @@ func outputUpdates(updates []Update, format string, colors colors) error {
 	default:
 		return fmt.Errorf("unknown format: %s", format)
 	}
+}
+
+func updateDetails(u Update) string {
+	if u.Error != "" {
+		return u.Error
+	}
+	return u.SkipReason
 }

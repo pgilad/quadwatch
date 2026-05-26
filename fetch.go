@@ -16,7 +16,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
-const maxConcurrentRemoteLookups = 8
+const (
+	maxConcurrentRemoteLookups = 8
+	requestTimeout             = 30 * time.Second
+)
 
 func fetchUpdates(ctx context.Context, images []Image, cfg Config, progress bool, progressColors colors) []Update {
 	updates := make([]Update, len(images))
@@ -104,8 +107,30 @@ func (f *updateFetcher) fetchOne(ctx context.Context, img Image) Update {
 	return fetchOneRegistry(ctx, img)
 }
 
+func newUpdate(img Image) Update {
+	return Update{File: img.File, Image: img.Image, Repository: img.Repository, CurrentTag: img.Tag}
+}
+
+func skipUnsupportedCurrentTag(img Image) (Update, bool) {
+	u := newUpdate(img)
+	if _, err := parseVersionTag(img.Tag); err != nil {
+		if errors.Is(err, errUnsupportedTagShape) {
+			u.SkipReason = err.Error()
+		} else {
+			u.Error = err.Error()
+		}
+		return u, true
+	}
+	return u, false
+}
+
 func (f *updateFetcher) fetchOneGitHubRelease(ctx context.Context, img Image, githubRepo string) Update {
-	u := Update{File: img.File, Image: img.Image, Repository: img.Repository, CurrentTag: img.Tag}
+	u, skipped := skipUnsupportedCurrentTag(img)
+	if skipped {
+		return u
+	}
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
 	tag, err := f.latestGitHubRelease(ctx, githubRepo)
 	if err != nil {
 		u.Error = err.Error()
@@ -155,7 +180,12 @@ func (f *updateFetcher) latestGitHubRelease(ctx context.Context, githubRepo stri
 }
 
 func fetchOneRegistry(ctx context.Context, img Image) Update {
-	u := Update{File: img.File, Image: img.Image, Repository: img.Repository, CurrentTag: img.Tag}
+	u, skipped := skipUnsupportedCurrentTag(img)
+	if skipped {
+		return u
+	}
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
 	repo, err := name.NewRepository(img.Repository)
 	if err != nil {
 		u.Error = err.Error()

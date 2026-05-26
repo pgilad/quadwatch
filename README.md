@@ -15,7 +15,7 @@ Small Go CLI for finding container images in Quadlet files and checking registry
 ## Why use quadwatch
 
 - Quadlet-aware scanning: reads `*.container`, `*.image`, and `*.volume` files.
-- Registry lookup: checks public registries and uses Docker credential auth through the default Docker keychain.
+- Registry lookup: checks public registries with a 30-second request timeout and uses Docker credential auth through the default Docker keychain.
 - Automation-friendly output: supports `json`, `csv`, and human-readable `table` formats.
 - Update-only by default: `fetch` reports only images with available updates unless `--all` is used.
 - Colorized human output: table output and `--progress` statuses use terminal colors by default.
@@ -179,7 +179,9 @@ quadlet,image_name,current_tag,newest_tag,update,skip_reason,error
 /path/sonarr.container,ghcr.io/hotio/sonarr,release-4.0.16.2944,release-4.0.17.2952,true,,
 ```
 
-Non-version-like current tags, such as `latest`, are reported as skipped with `skip_reason=unsupported tag shape` when included with `fetch --all`; they are not treated as lookup errors.
+Table output uses `STATUS` (`ok`, `update`, `skipped`, or `error`) and `DETAILS` columns for skip reasons or errors. CSV output includes both `skip_reason` and `error` columns.
+
+Non-version-like current tags, such as `latest`, are skipped before any registry/GitHub lookup and reported with `skip_reason=unsupported tag shape` when included with `fetch --all`; they are not treated as lookup errors.
 
 ## Install and update
 

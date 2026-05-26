@@ -9,13 +9,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
-	repoSlug   = "pgilad/quadwatch"
-	installURL = "https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh"
-	versionDev = "dev"
+	repoSlug           = "pgilad/quadwatch"
+	installURL         = "https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh"
+	versionDev         = "dev"
+	httpRequestTimeout = 30 * time.Second
 )
+
+var httpClient = &http.Client{Timeout: httpRequestTimeout}
 
 var version = versionDev
 
@@ -81,7 +85,7 @@ type githubRelease struct {
 
 func latestReleaseTag() (string, error) {
 	url := "https://api.github.com/repos/" + repoSlug + "/releases/latest"
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return "", err
 	}
@@ -100,7 +104,7 @@ func latestReleaseTag() (string, error) {
 }
 
 func downloadInstaller() (string, error) {
-	resp, err := http.Get(installURL)
+	resp, err := httpClient.Get(installURL)
 	if err != nil {
 		return "", err
 	}
