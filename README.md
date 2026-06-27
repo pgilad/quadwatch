@@ -3,7 +3,7 @@
 <p align="center"><strong>Find container image updates in Quadlet files.</strong></p>
 
 <p align="center">
-  <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.26.3%2B-00ADD8.svg" alt="Go 1.26.3+" /></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.26.4%2B-00ADD8.svg" alt="Go 1.26.4+" /></a>
   <img src="https://img.shields.io/badge/quadlet-container%20images-blue.svg" alt="Quadlet container images" />
   <img src="https://img.shields.io/badge/output-json%20%7C%20csv%20%7C%20table-555.svg" alt="JSON, CSV, and table output" />
 </p>
