@@ -102,8 +102,8 @@ type updateFetcher struct {
 }
 
 type githubReleaseResult struct {
-	tag string
-	err error
+	tags []string
+	err  error
 }
 
 type registryTagResult struct {
@@ -112,23 +112,25 @@ type registryTagResult struct {
 }
 
 func (f *updateFetcher) fetchOne(ctx context.Context, img Image) Update {
-	if githubRepo, ok := f.config.GitHubReleases[img.Repository]; ok {
-		return f.fetchOneGitHubRelease(ctx, img, githubRepo)
+	repoConfig := f.config.repositoryConfig(img.Repository)
+	if repoConfig.GitHubRelease != "" {
+		return f.fetchOneGitHubReleaseWithConfig(ctx, img, repoConfig)
 	}
-	return f.fetchOneRegistry(ctx, img)
+	return f.fetchOneRegistryWithConfig(ctx, img, repoConfig)
 }
 
 func newUpdate(img Image) Update {
 	return Update{File: img.File, Image: img.Image, Repository: img.Repository, CurrentTag: img.Tag}
 }
 
-func skipUnsupportedCurrentTag(img Image) (Update, bool) {
+func skipUnsupportedCurrentTag(img Image, opts compatibilityOptions) (Update, bool) {
 	u := newUpdate(img)
 	if img.Digest != "" {
 		u.SkipReason = "digest-pinned image"
 		return u, true
 	}
-	if _, err := parseVersionTag(img.Tag); err != nil {
+	_, err := newestCompatibleWithOptions(img.Tag, nil, opts)
+	if err != nil {
 		if errors.Is(err, errUnsupportedTagShape) {
 			u.SkipReason = err.Error()
 		} else {
@@ -140,18 +142,23 @@ func skipUnsupportedCurrentTag(img Image) (Update, bool) {
 }
 
 func (f *updateFetcher) fetchOneGitHubRelease(ctx context.Context, img Image, githubRepo string) Update {
-	u, skipped := skipUnsupportedCurrentTag(img)
+	return f.fetchOneGitHubReleaseWithConfig(ctx, img, RepositoryConfig{GitHubRelease: githubRepo})
+}
+
+func (f *updateFetcher) fetchOneGitHubReleaseWithConfig(ctx context.Context, img Image, repoConfig RepositoryConfig) Update {
+	opts := compatibilityOptions{includePrereleases: repoConfig.IncludePrereleases}
+	u, skipped := skipUnsupportedCurrentTag(img, opts)
 	if skipped {
 		return u
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	tag, err := f.latestGitHubRelease(ctx, githubRepo)
+	tags, err := f.githubReleaseTags(ctx, repoConfig.GitHubRelease, repoConfig.IncludePrereleases)
 	if err != nil {
 		u.Error = err.Error()
 		return u
 	}
-	newest, err := newestCompatible(img.Tag, []string{tag})
+	newest, err := newestCompatibleWithOptions(img.Tag, tags, opts)
 	if err != nil {
 		if errors.Is(err, errUnsupportedTagShape) {
 			u.SkipReason = err.Error()
@@ -165,33 +172,75 @@ func (f *updateFetcher) fetchOneGitHubRelease(ctx context.Context, img Image, gi
 	return u
 }
 
-func (f *updateFetcher) latestGitHubRelease(ctx context.Context, githubRepo string) (string, error) {
+func (f *updateFetcher) githubReleaseTags(ctx context.Context, githubRepo string, includePrereleases bool) ([]string, error) {
+	cacheKey := fmt.Sprintf("%t\x00%s", includePrereleases, githubRepo)
+
 	f.githubReleaseMu.Lock()
 	defer f.githubReleaseMu.Unlock()
 
-	if cached, ok := f.githubReleaseCache[githubRepo]; ok {
-		return cached.tag, cached.err
+	if cached, ok := f.githubReleaseCache[cacheKey]; ok {
+		return cached.tags, cached.err
 	}
 
+	tags, err := fetchGitHubReleaseTags(ctx, githubRepo, includePrereleases)
+	result := githubReleaseResult{tags: tags, err: err}
+	f.githubReleaseCache[cacheKey] = result
+	return result.tags, result.err
+}
+
+func fetchGitHubReleaseTags(ctx context.Context, githubRepo string, includePrereleases bool) ([]string, error) {
+	if includePrereleases {
+		return fetchGitHubReleaseList(ctx, githubRepo)
+	}
+	return fetchLatestGitHubRelease(ctx, githubRepo)
+}
+
+func fetchLatestGitHubRelease(ctx context.Context, githubRepo string) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "release", "view", "-R", githubRepo, "--json", "tagName", "-q", ".tagName")
+	tags, err := runGitHubReleaseTagCommand(cmd, fmt.Sprintf("gh release view -R %s", githubRepo))
+	if err != nil {
+		return nil, err
+	}
+	return tags, nil
+}
+
+func fetchGitHubReleaseList(ctx context.Context, githubRepo string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "gh", "release", "list", "-R", githubRepo, "--exclude-drafts", "--limit", "100", "--json", "tagName", "-q", ".[].tagName")
+	tags, err := runGitHubReleaseTagCommand(cmd, fmt.Sprintf("gh release list -R %s", githubRepo))
+	if err != nil {
+		return nil, err
+	}
+	return tags, nil
+}
+
+func runGitHubReleaseTagCommand(cmd *exec.Cmd, description string) ([]string, error) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	tag := strings.TrimSpace(string(out))
 	if err != nil {
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
-			err = fmt.Errorf("gh release view -R %s: %w: %s", githubRepo, err, detail)
-		} else {
-			err = fmt.Errorf("gh release view -R %s: %w", githubRepo, err)
+			return nil, fmt.Errorf("%s: %w: %s", description, err, detail)
 		}
-	} else if tag == "" {
-		err = fmt.Errorf("gh release view -R %s returned empty tag", githubRepo)
+		return nil, fmt.Errorf("%s: %w", description, err)
 	}
+	tags := nonEmptyLines(string(out))
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("%s returned no tags", description)
+	}
+	return tags, nil
+}
 
-	result := githubReleaseResult{tag: tag, err: err}
-	f.githubReleaseCache[githubRepo] = result
-	return result.tag, result.err
+func nonEmptyLines(output string) []string {
+	lines := strings.Split(output, "\n")
+	tags := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			tags = append(tags, line)
+		}
+	}
+	return tags
 }
 
 func fetchOneRegistry(ctx context.Context, img Image) Update {
@@ -200,7 +249,12 @@ func fetchOneRegistry(ctx context.Context, img Image) Update {
 }
 
 func (f *updateFetcher) fetchOneRegistry(ctx context.Context, img Image) Update {
-	u, skipped := skipUnsupportedCurrentTag(img)
+	return f.fetchOneRegistryWithConfig(ctx, img, RepositoryConfig{})
+}
+
+func (f *updateFetcher) fetchOneRegistryWithConfig(ctx context.Context, img Image, repoConfig RepositoryConfig) Update {
+	opts := compatibilityOptions{includePrereleases: repoConfig.IncludePrereleases}
+	u, skipped := skipUnsupportedCurrentTag(img, opts)
 	if skipped {
 		return u
 	}
@@ -209,7 +263,7 @@ func (f *updateFetcher) fetchOneRegistry(ctx context.Context, img Image) Update 
 		u.Error = err.Error()
 		return u
 	}
-	newest, err := newestCompatible(img.Tag, tags)
+	newest, err := newestCompatibleWithOptions(img.Tag, tags, opts)
 	if err != nil {
 		if errors.Is(err, errUnsupportedTagShape) {
 			u.SkipReason = err.Error()

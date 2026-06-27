@@ -11,7 +11,12 @@ import (
 var (
 	errUnsupportedTagShape = errors.New("unsupported tag shape")
 	versionRe              = regexp.MustCompile(`^([^0-9]*?)([0-9]+(?:\.[0-9]+){0,3})(.*)$`)
+	prereleaseVersionRe    = regexp.MustCompile(`^([^0-9]*?)([0-9]+(?:\.[0-9]+){0,3}(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?)$`)
 )
+
+type compatibilityOptions struct {
+	includePrereleases bool
+}
 
 type parsedVersionTag struct {
 	prefix   string
@@ -37,16 +42,69 @@ func parseVersionTag(tag string) (parsedVersionTag, error) {
 	}, nil
 }
 
+func parsePrereleaseVersionTag(tag string) (parsedVersionTag, error) {
+	m := prereleaseVersionRe.FindStringSubmatch(tag)
+	if m == nil {
+		return parsedVersionTag{}, errUnsupportedTagShape
+	}
+	v, err := hcversion.NewVersion(m[2])
+	if err != nil {
+		return parsedVersionTag{}, err
+	}
+	return parsedVersionTag{
+		prefix:   m[1],
+		version:  v,
+		segments: versionSegmentCount(m[2]),
+	}, nil
+}
+
+func versionSegmentCount(version string) int {
+	core := version
+	if before, _, ok := strings.Cut(core, "-"); ok {
+		core = before
+	}
+	if before, _, ok := strings.Cut(core, "+"); ok {
+		core = before
+	}
+	return strings.Count(core, ".") + 1
+}
+
 func newestCompatible(current string, tags []string) (string, error) {
+	return newestCompatibleWithOptions(current, tags, compatibilityOptions{})
+}
+
+func newestCompatibleWithOptions(current string, tags []string, opts compatibilityOptions) (string, error) {
+	if opts.includePrereleases {
+		return newestCompatiblePrerelease(current, tags)
+	}
+	return newestCompatibleDefault(current, tags)
+}
+
+func newestCompatibleDefault(current string, tags []string) (string, error) {
 	currentTag, err := parseVersionTag(current)
 	if err != nil {
 		return "", err
 	}
+	return newestParsedCompatible(currentTag, tags, parseVersionTag, false)
+}
+
+func newestCompatiblePrerelease(current string, tags []string) (string, error) {
+	currentTag, err := parsePrereleaseVersionTag(current)
+	if err != nil {
+		return "", err
+	}
+	return newestParsedCompatible(currentTag, tags, parsePrereleaseVersionTag, true)
+}
+
+func newestParsedCompatible(currentTag parsedVersionTag, tags []string, parse func(string) (parsedVersionTag, error), allowPrereleaseSuffixChanges bool) (string, error) {
 	var newestTag string
 	var newestVersion *hcversion.Version
 	for _, tag := range tags {
-		candidate, err := parseVersionTag(tag)
-		if err != nil || candidate.prefix != currentTag.prefix || candidate.suffix != currentTag.suffix {
+		candidate, err := parse(tag)
+		if err != nil || candidate.prefix != currentTag.prefix {
+			continue
+		}
+		if !allowPrereleaseSuffixChanges && candidate.suffix != currentTag.suffix {
 			continue
 		}
 		if candidate.segments < currentTag.segments {

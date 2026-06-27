@@ -80,6 +80,41 @@ func TestNewestCompatible(t *testing.T) {
 	}
 }
 
+func TestNewestCompatiblePrereleasesRequireOptIn(t *testing.T) {
+	t.Parallel()
+
+	current := "v0.7.2-alpha.10"
+	tags := []string{"v0.7.2-alpha.9", "v0.7.2-alpha.11"}
+
+	got, err := newestCompatible(current, tags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("newestCompatible() = %q, want no prerelease update without opt-in", got)
+	}
+
+	got, err = newestCompatibleWithOptions(current, tags, compatibilityOptions{includePrereleases: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "v0.7.2-alpha.11" {
+		t.Fatalf("newestCompatibleWithOptions() = %q, want v0.7.2-alpha.11", got)
+	}
+}
+
+func TestNewestCompatiblePrereleaseOptInAllowsStableRelease(t *testing.T) {
+	t.Parallel()
+
+	got, err := newestCompatibleWithOptions("v0.7.2-alpha.10", []string{"v0.7.2-alpha.11", "v0.7.2"}, compatibilityOptions{includePrereleases: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "v0.7.2" {
+		t.Fatalf("newestCompatibleWithOptions() = %q, want v0.7.2", got)
+	}
+}
+
 func TestScanImagesReturnsParseErrors(t *testing.T) {
 	t.Parallel()
 
@@ -329,6 +364,66 @@ func TestFetchOneGitHubReleaseUsesLatestReleaseTagCompatibility(t *testing.T) {
 	}
 }
 
+func TestFetchOneGitHubReleaseIncludesPrereleasesFromConfig(t *testing.T) {
+	binDir := t.TempDir()
+	argsPath := filepath.Join(binDir, "gh.args")
+	t.Setenv("GH_ARGS", argsPath)
+	ghPath := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(ghPath, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$GH_ARGS\"\nprintf '%s\\n' 'v0.7.2-alpha.11'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	fetcher := &updateFetcher{githubReleaseCache: map[string]githubReleaseResult{}}
+	update := fetcher.fetchOneGitHubReleaseWithConfig(t.Context(), Image{
+		File:       "app.container",
+		Image:      "ghcr.io/we-promise/sure:v0.7.2-alpha.10",
+		Repository: "ghcr.io/we-promise/sure",
+		Tag:        "v0.7.2-alpha.10",
+	}, RepositoryConfig{GitHubRelease: "we-promise/sure", IncludePrereleases: true})
+	if update.Error != "" {
+		t.Fatalf("fetchOneGitHubReleaseWithConfig() error = %q", update.Error)
+	}
+	if !update.Update || update.NewestTag != "v0.7.2-alpha.11" {
+		t.Fatalf("fetchOneGitHubReleaseWithConfig() = %#v", update)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), "release list") || strings.Contains(string(args), "--exclude-pre-releases") {
+		t.Fatalf("gh args = %q, want release list including prereleases", string(args))
+	}
+}
+
+func TestFetchOneRegistryIncludesPrereleasesFromConfig(t *testing.T) {
+	img := Image{
+		File:       "app.container",
+		Image:      "ghcr.io/we-promise/sure:v0.7.2-alpha.10",
+		Repository: "ghcr.io/we-promise/sure",
+		Tag:        "v0.7.2-alpha.10",
+	}
+
+	fetcher := &updateFetcher{registryTagCache: map[string]registryTagResult{
+		"ghcr.io/we-promise/sure": {tags: []string{"v0.7.2-alpha.11"}},
+	}}
+	update := fetcher.fetchOneRegistry(t.Context(), img)
+	if update.Error != "" {
+		t.Fatalf("fetchOneRegistry() error = %q", update.Error)
+	}
+	if update.Update {
+		t.Fatalf("fetchOneRegistry() = %#v, want no prerelease update without opt-in", update)
+	}
+
+	update = fetcher.fetchOneRegistryWithConfig(t.Context(), img, RepositoryConfig{IncludePrereleases: true})
+	if update.Error != "" {
+		t.Fatalf("fetchOneRegistryWithConfig() error = %q", update.Error)
+	}
+	if !update.Update || update.NewestTag != "v0.7.2-alpha.11" {
+		t.Fatalf("fetchOneRegistryWithConfig() = %#v", update)
+	}
+}
+
 func TestLoadConfigDefaultLookupOrder(t *testing.T) {
 	tmp := t.TempDir()
 	cwd := filepath.Join(tmp, "cwd")
@@ -375,6 +470,43 @@ func TestLoadConfigDefaultLookupOrder(t *testing.T) {
 	}
 	if _, ok := cfg.GitHubReleases["ghcr.io/example/xdg"]; ok {
 		t.Fatal("loadConfig() did not prefer cwd config over XDG config")
+	}
+}
+
+func TestRepositoryConfigMergesLegacyGitHubRelease(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		GitHubReleases: map[string]string{"ghcr.io/we-promise/sure": "we-promise/sure"},
+		Repositories: map[string]RepositoryConfig{
+			"ghcr.io/we-promise/sure": {IncludePrereleases: true},
+		},
+	}
+	repoConfig := cfg.repositoryConfig("ghcr.io/we-promise/sure")
+	if repoConfig.GitHubRelease != "we-promise/sure" || !repoConfig.IncludePrereleases {
+		t.Fatalf("repositoryConfig() = %#v", repoConfig)
+	}
+}
+
+func TestLoadConfigRepositoryOptions(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "quadwatch.yaml")
+	data := []byte(`repositories:
+  ghcr.io/we-promise/sure:
+    github_release: we-promise/sure
+    include_prereleases: true
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoConfig := cfg.repositoryConfig("ghcr.io/we-promise/sure")
+	if repoConfig.GitHubRelease != "we-promise/sure" || !repoConfig.IncludePrereleases {
+		t.Fatalf("loadConfig() repository config = %#v", repoConfig)
 	}
 }
 

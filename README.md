@@ -147,6 +147,11 @@ Use `--config PATH` to load a specific file instead.
 github_releases:
   ghcr.io/immich-app/immich-server: immich-app/immich
   ghcr.io/immich-app/immich-machine-learning: immich-app/immich
+
+repositories:
+  ghcr.io/we-promise/sure:
+    github_release: we-promise/sure
+    include_prereleases: true
 ```
 
 Config keys must use quadwatch's normalized repository name, not necessarily the image text as it appears in the Quadlet file. Quadwatch applies Docker-style defaults while scanning: Docker Hub images are normalized to `index.docker.io`, official Docker Hub images include the `library/` namespace, and tags are not part of the config key.
@@ -162,7 +167,11 @@ Examples:
 
 You can run `quadwatch images --format table PATH` to see the exact repository names to use as config keys.
 
-Configured entries run `gh release view -R <repo> --json tagName -q .tagName`, then compare that release tag using the same compatibility rules as registry tags. The `gh` CLI must be installed and authenticated if the GitHub request requires it.
+`github_releases` is a shorthand for stable GitHub release lookups. For per-repository options, use `repositories`. Set `include_prereleases: true` to opt a specific normalized repository into prerelease-aware matching for tags such as `v0.7.2-alpha.10` and `v0.7.2-rc.1`. This option applies to both registry tag listing and GitHub release lookups; omit `github_release` to keep using registry tags.
+
+Configured stable GitHub release entries run `gh release view -R <repo> --json tagName -q .tagName`. Repositories with `include_prereleases: true` and `github_release` configured run `gh release list -R <repo> --exclude-drafts --limit 100 --json tagName -q '.[].tagName'`, then compare those release tags using prerelease-aware compatibility rules. The `gh` CLI must be installed and authenticated if the GitHub request requires it.
+
+Prerelease matching is opt-in because Docker tag suffixes can also describe image flavors such as `-alpine`; only enable it for repositories where prerelease-style suffixes should be treated as part of the version.
 
 ## Output
 

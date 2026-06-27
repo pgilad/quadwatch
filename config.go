@@ -12,11 +12,17 @@ import (
 const cwdConfigPath = "quadwatch.yaml"
 
 type Config struct {
-	GitHubReleases map[string]string `yaml:"github_releases"`
+	GitHubReleases map[string]string           `yaml:"github_releases"`
+	Repositories   map[string]RepositoryConfig `yaml:"repositories"`
+}
+
+type RepositoryConfig struct {
+	GitHubRelease      string `yaml:"github_release"`
+	IncludePrereleases bool   `yaml:"include_prereleases"`
 }
 
 func loadConfig(path string) (Config, error) {
-	cfg := Config{GitHubReleases: map[string]string{}}
+	cfg := Config{GitHubReleases: map[string]string{}, Repositories: map[string]RepositoryConfig{}}
 	explicit := path != ""
 	if !explicit {
 		candidates, err := defaultConfigPaths()
@@ -49,12 +55,31 @@ func loadConfig(path string) (Config, error) {
 	if cfg.GitHubReleases == nil {
 		cfg.GitHubReleases = map[string]string{}
 	}
+	if cfg.Repositories == nil {
+		cfg.Repositories = map[string]RepositoryConfig{}
+	}
 	for image, repo := range cfg.GitHubReleases {
 		if strings.TrimSpace(image) == "" || strings.TrimSpace(repo) == "" {
 			return cfg, fmt.Errorf("config %s has an empty github_releases entry", path)
 		}
 	}
+	for image, repoConfig := range cfg.Repositories {
+		if strings.TrimSpace(image) == "" {
+			return cfg, fmt.Errorf("config %s has an empty repositories entry", path)
+		}
+		if repoConfig.GitHubRelease != "" && strings.TrimSpace(repoConfig.GitHubRelease) == "" {
+			return cfg, fmt.Errorf("config %s has an empty repositories.github_release entry", path)
+		}
+	}
 	return cfg, nil
+}
+
+func (cfg Config) repositoryConfig(repository string) RepositoryConfig {
+	repoConfig := cfg.Repositories[repository]
+	if repoConfig.GitHubRelease == "" {
+		repoConfig.GitHubRelease = cfg.GitHubReleases[repository]
+	}
+	return repoConfig
 }
 
 func defaultConfigPaths() ([]string, error) {
