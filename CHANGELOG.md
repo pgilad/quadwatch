@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.06.27-42
+
+- chore: update go dependencies (1be708c)
+- Support pre-release (bdd6752)
+
 ## 2026.05.26-9
 
 - fix: improve fetch reliability and output consistency (ca979bc)
