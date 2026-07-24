@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.07.24-69
+
+- fix: normalize GitHub release v prefixes (d31b068)
+
 ## 2026.06.27-42
 
 - chore: update go dependencies (1be708c)
