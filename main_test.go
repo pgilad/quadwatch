@@ -342,25 +342,41 @@ func TestScanImagesRecursesAndIgnoresUnsupportedFiles(t *testing.T) {
 }
 
 func TestFetchOneGitHubReleaseUsesLatestReleaseTagCompatibility(t *testing.T) {
-	binDir := t.TempDir()
-	ghPath := filepath.Join(binDir, "gh")
-	if err := os.WriteFile(ghPath, []byte("#!/bin/sh\nprintf '%s\\n' 'v1.3.0'\n"), 0o755); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name       string
+		current    string
+		releaseTag string
+		want       string
+	}{
+		{name: "matching v prefix", current: "v1.2.0", releaseTag: "v1.3.0", want: "v1.3.0"},
+		{name: "release adds v prefix", current: "1.2.0", releaseTag: "v1.3.0", want: "1.3.0"},
+		{name: "release omits v prefix", current: "v1.2.0", releaseTag: "1.3.0", want: "v1.3.0"},
+		{name: "unrelated prefix remains incompatible", current: "release-1.2.0", releaseTag: "v1.3.0"},
 	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	fetcher := &updateFetcher{githubReleaseCache: map[string]githubReleaseResult{}}
-	update := fetcher.fetchOneGitHubRelease(t.Context(), Image{
-		File:       "app.container",
-		Image:      "ghcr.io/example/app:v1.2.0",
-		Repository: "ghcr.io/example/app",
-		Tag:        "v1.2.0",
-	}, "owner/repo")
-	if update.Error != "" {
-		t.Fatalf("fetchOneGitHubRelease() error = %q", update.Error)
-	}
-	if !update.Update || update.NewestTag != "v1.3.0" {
-		t.Fatalf("fetchOneGitHubRelease() = %#v", update)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			ghPath := filepath.Join(binDir, "gh")
+			if err := os.WriteFile(ghPath, []byte("#!/bin/sh\nprintf '%s\\n' '"+tt.releaseTag+"'\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			fetcher := &updateFetcher{githubReleaseCache: map[string]githubReleaseResult{}}
+			update := fetcher.fetchOneGitHubRelease(t.Context(), Image{
+				File:       "app.container",
+				Image:      "ghcr.io/example/app:" + tt.current,
+				Repository: "ghcr.io/example/app",
+				Tag:        tt.current,
+			}, "owner/repo")
+			if update.Error != "" {
+				t.Fatalf("fetchOneGitHubRelease() error = %q", update.Error)
+			}
+			if update.NewestTag != tt.want || update.Update != (tt.want != "") {
+				t.Fatalf("fetchOneGitHubRelease() = %#v, want newest tag %q", update, tt.want)
+			}
+		})
 	}
 }
 
@@ -377,14 +393,14 @@ func TestFetchOneGitHubReleaseIncludesPrereleasesFromConfig(t *testing.T) {
 	fetcher := &updateFetcher{githubReleaseCache: map[string]githubReleaseResult{}}
 	update := fetcher.fetchOneGitHubReleaseWithConfig(t.Context(), Image{
 		File:       "app.container",
-		Image:      "ghcr.io/we-promise/sure:v0.7.2-alpha.10",
+		Image:      "ghcr.io/we-promise/sure:0.7.2-alpha.10",
 		Repository: "ghcr.io/we-promise/sure",
-		Tag:        "v0.7.2-alpha.10",
+		Tag:        "0.7.2-alpha.10",
 	}, RepositoryConfig{GitHubRelease: "we-promise/sure", IncludePrereleases: true})
 	if update.Error != "" {
 		t.Fatalf("fetchOneGitHubReleaseWithConfig() error = %q", update.Error)
 	}
-	if !update.Update || update.NewestTag != "v0.7.2-alpha.11" {
+	if !update.Update || update.NewestTag != "0.7.2-alpha.11" {
 		t.Fatalf("fetchOneGitHubReleaseWithConfig() = %#v", update)
 	}
 	args, err := os.ReadFile(argsPath)

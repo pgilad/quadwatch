@@ -158,6 +158,7 @@ func (f *updateFetcher) fetchOneGitHubReleaseWithConfig(ctx context.Context, img
 		u.Error = err.Error()
 		return u
 	}
+	tags = normalizeGitHubReleaseTagPrefixes(img.Tag, tags, repoConfig.IncludePrereleases)
 	newest, err := newestCompatibleWithOptions(img.Tag, tags, opts)
 	if err != nil {
 		if errors.Is(err, errUnsupportedTagShape) {
@@ -170,6 +171,32 @@ func (f *updateFetcher) fetchOneGitHubReleaseWithConfig(ctx context.Context, img
 	u.NewestTag = newest
 	u.Update = newest != "" && newest != img.Tag
 	return u
+}
+
+func normalizeGitHubReleaseTagPrefixes(current string, tags []string, includePrereleases bool) []string {
+	parse := parseVersionTag
+	if includePrereleases {
+		parse = parsePrereleaseVersionTag
+	}
+	currentTag, err := parse(current)
+	if err != nil || (currentTag.prefix != "" && currentTag.prefix != "v") {
+		return tags
+	}
+
+	normalized := append([]string(nil), tags...)
+	for i, tag := range normalized {
+		candidate, err := parse(tag)
+		if err != nil {
+			continue
+		}
+		switch {
+		case currentTag.prefix == "" && candidate.prefix == "v":
+			normalized[i] = strings.TrimPrefix(tag, "v")
+		case currentTag.prefix == "v" && candidate.prefix == "":
+			normalized[i] = "v" + tag
+		}
+	}
+	return normalized
 }
 
 func (f *updateFetcher) githubReleaseTags(ctx context.Context, githubRepo string, includePrereleases bool) ([]string, error) {

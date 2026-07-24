@@ -117,7 +117,7 @@ Examples:
 | `foo_bar_10.5-alpine` | `foo_bar_` | `10.5` | `-alpine` |
 | `2026.04.25.123345` | empty | `2026.04.25.123345` | empty |
 
-Candidate tags must keep the same prefix and suffix as the current tag.
+Registry candidate tags must keep the same prefix and suffix as the current tag. GitHub Release lookups additionally treat a single leading `v` as optional and report the result using the current image tag's prefix style.
 
 For current tag `release-4.0.16.2944`, accepted candidates include:
 
@@ -170,6 +170,8 @@ You can run `quadwatch images --format table PATH` to see the exact repository n
 `github_releases` is a shorthand for stable GitHub release lookups. For per-repository options, use `repositories`. Set `include_prereleases: true` to opt a specific normalized repository into prerelease-aware matching for tags such as `v0.7.2-alpha.10` and `v0.7.2-rc.1`. This option applies to both registry tag listing and GitHub release lookups; omit `github_release` to keep using registry tags.
 
 Configured stable GitHub release entries run `gh release view -R <repo> --json tagName -q .tagName`. Repositories with `include_prereleases: true` and `github_release` configured run `gh release list -R <repo> --exclude-drafts --limit 100 --json tagName -q '.[].tagName'`, then compare those release tags using prerelease-aware compatibility rules. The `gh` CLI must be installed and authenticated if the GitHub request requires it.
+
+GitHub Release lookups normalize an optional leading `v` to match the current image tag. For example, an image at `0.7.3-alpha.1` can use a GitHub release tagged `v0.7.3-alpha.4`; quadwatch reports the image-compatible tag `0.7.3-alpha.4`.
 
 Prerelease matching is opt-in because Docker tag suffixes can also describe image flavors such as `-alpine`; only enable it for repositories where prerelease-style suffixes should be treated as part of the version.
 
