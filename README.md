@@ -217,6 +217,25 @@ quadwatch self-update
 quadwatch uninstall
 ```
 
+The installer verifies the downloaded archive against the SHA-256 digest published in `checksums.txt`. To cryptographically verify that a release and its assets have not changed since publication, use GitHub CLI:
+
+```bash
+gh release verify 2026.05.23-5 --repo pgilad/quadwatch
+```
+
+To verify that a downloaded archive was produced by this repository's release workflow, download it and verify its build-provenance attestation:
+
+```bash
+version=2026.05.23-5
+target=linux-amd64
+archive="quadwatch-${target}.tar.gz"
+
+gh release download "${version}" --repo pgilad/quadwatch --pattern "${archive}"
+gh attestation verify "${archive}" \
+  --repo pgilad/quadwatch \
+  --signer-workflow pgilad/quadwatch/.github/workflows/release.yaml
+```
+
 ## Development
 
 ```bash

@@ -194,6 +194,11 @@ jobs:
     needs:
       - preflight
       - prepare_release
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -232,6 +237,10 @@ jobs:
         run: ./scripts/package-release.sh "${{ needs.prepare_release.outputs.release_version }}" target/release/dist --target "${{ matrix.target }}"
       - name: Verify release archive
         run: ./scripts/verify-release.sh "${{ needs.prepare_release.outputs.release_version }}" "${{ matrix.target }}" target/release/dist "${{ needs.prepare_release.outputs.release_sha }}"
+      - name: Attest release archives
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: "target/release/dist/*.tar.gz"
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
