@@ -1,3 +1,5 @@
 quadwatch
 quadwatch.yaml
 /dist/
+/coverage.out
+/target/

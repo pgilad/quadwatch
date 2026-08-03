@@ -3,7 +3,7 @@
 <p align="center"><strong>Find container image updates in Quadlet files.</strong></p>
 
 <p align="center">
-  <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.26.4%2B-00ADD8.svg" alt="Go 1.26.4+" /></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.26.5%2B-00ADD8.svg" alt="Go 1.26.5+" /></a>
   <img src="https://img.shields.io/badge/quadlet-container%20images-blue.svg" alt="Quadlet container images" />
   <img src="https://img.shields.io/badge/output-json%20%7C%20csv%20%7C%20table-555.svg" alt="JSON, CSV, and table output" />
 </p>
@@ -28,7 +28,7 @@ Small Go CLI for finding container images in Quadlet files and checking registry
 ### 1. Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh | sh
+curl -fsSL https://github.com/pgilad/quadwatch/releases/latest/download/install.sh | sh
 ```
 
 Or build from source:
@@ -201,13 +201,13 @@ Non-version-like current tags, such as `latest`, are skipped before any registry
 Install the latest release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh | sh
+curl -fsSL https://github.com/pgilad/quadwatch/releases/latest/download/install.sh | sh
 ```
 
 Install a specific release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh | sh -s -- --version 2026.05.23-5
+curl -fsSL https://github.com/pgilad/quadwatch/releases/download/2026.05.23-5/install.sh | sh
 ```
 
 Update or uninstall later:

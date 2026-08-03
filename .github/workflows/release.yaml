@@ -3,8 +3,13 @@ name: release
 on:
   workflow_dispatch:
   schedule:
-    # 08:00 Israel Standard Time; GitHub schedules are UTC and do not support timezones/DST.
+    # GitHub cron is UTC. Trigger for both Israeli offsets, then keep the one
+    # corresponding to 08:00 in Asia/Jerusalem in the preflight job.
+    - cron: '0 5 * * *'
     - cron: '0 6 * * *'
+
+permissions:
+  contents: read
 
 concurrency:
   group: release-main
@@ -15,39 +20,56 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       latest_tag: ${{ steps.candidate.outputs.latest_tag }}
-      release_sha: ${{ steps.candidate.outputs.release_sha }}
+      candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
       should_release: ${{ steps.candidate.outputs.should_release }}
     steps:
+      - name: Select the 08:00 Israel-time schedule
+        id: schedule
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          should_run=true
+          if [[ "${EVENT_NAME}" == "schedule" ]]; then
+            israel_offset="$(TZ=Asia/Jerusalem date +%z)"
+            case "${israel_offset}:${EVENT_SCHEDULE}" in
+              '+0300:0 5 * * *'|'+0200:0 6 * * *') ;;
+              *) should_run=false ;;
+            esac
+          fi
+          printf 'should_run=%s\n' "${should_run}" >> "${GITHUB_OUTPUT}"
       - name: Ensure manual releases are dispatched from main
         if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
         run: |
           echo "error: releases can only be dispatched from refs/heads/main" >&2
           exit 1
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.schedule.outputs.should_run == 'true'
         with:
           ref: main
           fetch-depth: 0
       - name: Resolve release candidate
         id: candidate
+        if: steps.schedule.outputs.should_run == 'true'
         run: |
-          release_sha="$(git rev-parse HEAD)"
+          candidate_sha="$(git rev-parse HEAD)"
           latest_tag="$(git tag --list '[0-9]*' --sort=-v:refname | sed -n '1p')"
           should_release=true
 
           if [[ -n "${latest_tag}" ]]; then
             tagged_sha="$(git rev-list -n 1 "${latest_tag}")"
-            if [[ "${tagged_sha}" == "${release_sha}" ]]; then
+            if [[ "${tagged_sha}" == "${candidate_sha}" ]]; then
               should_release=false
             fi
           fi
 
           {
             printf 'latest_tag=%s\n' "${latest_tag}"
-            printf 'release_sha=%s\n' "${release_sha}"
+            printf 'candidate_sha=%s\n' "${candidate_sha}"
             printf 'should_release=%s\n' "${should_release}"
           } >> "${GITHUB_OUTPUT}"
       - name: Skip when main has no unreleased commits
-        if: steps.candidate.outputs.should_release != 'true'
+        if: steps.schedule.outputs.should_run == 'true' && steps.candidate.outputs.should_release != 'true'
         run: echo "No unreleased commits on main since ${{ steps.candidate.outputs.latest_tag }}."
 
   lint:
@@ -55,10 +77,10 @@ jobs:
     needs: preflight
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.preflight.outputs.release_sha }}
-      - uses: actions/setup-go@v6.5.0
+          ref: ${{ needs.preflight.outputs.candidate_sha }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -67,9 +89,13 @@ jobs:
       - name: Run go vet
         run: go vet ./...
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9.2.1
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
         with:
           version: v2.12.2
+      - name: Check shell scripts
+        run: shellcheck scripts/*.sh
+      - name: Check workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
   test:
     if: needs.preflight.outputs.should_release == 'true'
@@ -82,15 +108,30 @@ jobs:
           - macos-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.preflight.outputs.release_sha }}
-      - uses: actions/setup-go@v6.5.0
+          ref: ${{ needs.preflight.outputs.candidate_sha }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
       - name: Run tests
         run: go test -race ./...
+
+  release_smoke:
+    if: needs.preflight.outputs.should_release == 'true'
+    needs: preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.preflight.outputs.candidate_sha }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Exercise release and installer
+        run: ./scripts/test-release.sh
 
   prepare_release:
     if: needs.preflight.outputs.should_release == 'true'
@@ -98,26 +139,51 @@ jobs:
       - preflight
       - lint
       - test
+      - release_smoke
     runs-on: ubuntu-24.04
     outputs:
       release_version: ${{ steps.release.outputs.release_version }}
+      release_sha: ${{ steps.commit.outputs.release_sha }}
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.preflight.outputs.release_sha }}
+          ref: ${{ needs.preflight.outputs.candidate_sha }}
           fetch-depth: 0
       - name: Prepare release
         id: release
         run: ./scripts/prepare-release.sh "${{ github.run_number }}"
       - name: Render release installer
         run: ./scripts/render-installer.sh "${{ steps.release.outputs.release_version }}" target/release/metadata/install.sh
+      - name: Create release commit and tag bundle
+        id: commit
+        env:
+          CANDIDATE_SHA: ${{ needs.preflight.outputs.candidate_sha }}
+          RELEASE_VERSION: ${{ steps.release.outputs.release_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "error: prepare-release did not update CHANGELOG.md" >&2
+            exit 1
+          fi
+          git commit -m "chore(release): ${RELEASE_VERSION}"
+          release_sha="$(git rev-parse HEAD)"
+          git tag -a "${RELEASE_VERSION}" -m "${RELEASE_VERSION}"
+          git branch release-candidate "${release_sha}"
+          git bundle create target/release/metadata/release.bundle \
+            refs/heads/release-candidate \
+            "refs/tags/${RELEASE_VERSION}" \
+            "^${CANDIDATE_SHA}"
+          git bundle verify target/release/metadata/release.bundle
+          printf 'release_sha=%s\n' "${release_sha}" >> "${GITHUB_OUTPUT}"
       - name: Stage release metadata
         run: |
           mkdir -p target/release/metadata
           cp CHANGELOG.md target/release/metadata/CHANGELOG.md
           cp "${{ steps.release.outputs.release_notes_path }}" target/release/metadata/release-notes.md
       - name: Upload release metadata
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-metadata
           path: target/release/metadata/*
@@ -138,24 +204,36 @@ jobs:
           - darwin-arm64
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.preflight.outputs.release_sha }}
-      - uses: actions/setup-go@v6.5.0
+          ref: ${{ needs.preflight.outputs.candidate_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
       - name: Download prepared metadata
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-metadata
           path: target/release/metadata
-      - name: Restore prepared changelog
-        run: cp target/release/metadata/CHANGELOG.md CHANGELOG.md
+      - name: Restore exact release commit and tag
+        env:
+          RELEASE_SHA: ${{ needs.prepare_release.outputs.release_sha }}
+          RELEASE_VERSION: ${{ needs.prepare_release.outputs.release_version }}
+        run: |
+          git fetch target/release/metadata/release.bundle \
+            refs/heads/release-candidate \
+            "refs/tags/${RELEASE_VERSION}:refs/tags/${RELEASE_VERSION}"
+          git checkout --detach "${RELEASE_SHA}"
+          test "$(git rev-parse "refs/tags/${RELEASE_VERSION}^{commit}")" = "${RELEASE_SHA}"
+          test -z "$(git status --porcelain)"
       - name: Package release archive
         run: ./scripts/package-release.sh "${{ needs.prepare_release.outputs.release_version }}" target/release/dist --target "${{ matrix.target }}"
+      - name: Verify release archive
+        run: ./scripts/verify-release.sh "${{ needs.prepare_release.outputs.release_version }}" "${{ matrix.target }}" target/release/dist "${{ needs.prepare_release.outputs.release_sha }}"
       - name: Upload packaged artifacts
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-dist-${{ matrix.target }}
           path: target/release/dist/*
@@ -173,58 +251,49 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.preflight.outputs.release_sha }}
+          ref: ${{ needs.preflight.outputs.candidate_sha }}
           fetch-depth: 0
       - name: Ensure main has not advanced
         run: |
           git fetch origin main --tags
           current_main="$(git rev-parse origin/main)"
-          release_sha="${{ needs.preflight.outputs.release_sha }}"
-          if [[ "${current_main}" != "${release_sha}" ]]; then
+          candidate_sha="${{ needs.preflight.outputs.candidate_sha }}"
+          if [[ "${current_main}" != "${candidate_sha}" ]]; then
             echo "error: main advanced to ${current_main} after this release started; rerun the workflow to release the latest tip" >&2
             exit 1
           fi
       - name: Download release metadata
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-metadata
           path: target/release/metadata
+      - name: Restore exact release commit and tag
+        env:
+          RELEASE_SHA: ${{ needs.prepare_release.outputs.release_sha }}
+          RELEASE_VERSION: ${{ needs.prepare_release.outputs.release_version }}
+        run: |
+          git fetch target/release/metadata/release.bundle \
+            refs/heads/release-candidate \
+            "refs/tags/${RELEASE_VERSION}:refs/tags/${RELEASE_VERSION}"
+          git checkout --detach "${RELEASE_SHA}"
+          test "$(git rev-parse "refs/tags/${RELEASE_VERSION}^{commit}")" = "${RELEASE_SHA}"
+          test -z "$(git status --porcelain)"
       - name: Download packaged artifacts
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-dist-*
           path: target/release/dist
           merge-multiple: true
       - name: Restore release metadata
-        run: |
-          cp target/release/metadata/CHANGELOG.md CHANGELOG.md
-          cp target/release/metadata/release-notes.md target/release/release-notes.md
+        run: cp target/release/metadata/release-notes.md target/release/release-notes.md
       - name: Write checksum manifest
-        run: |
-          checksum_manifest="target/release/checksums.txt"
-          : > "${checksum_manifest}"
-          find target/release/dist -type f -name '*.sha256' | sort | while IFS= read -r checksum_path; do
-            checksum="$(cat "${checksum_path}")"
-            archive_name="$(basename "${checksum_path%.sha256}")"
-            printf '%s  %s\n' "${checksum}" "${archive_name}" >> "${checksum_manifest}"
-          done
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      - name: Commit changelog and push release refs
+        run: ./scripts/write-checksums.sh target/release/dist target/release/checksums.txt
+      - name: Push prepared release refs
         run: |
           version="${{ needs.prepare_release.outputs.release_version }}"
-          git add CHANGELOG.md
-          if git diff --cached --quiet; then
-            echo "error: prepare-release did not update CHANGELOG.md" >&2
-            exit 1
-          fi
-          git commit -m "chore(release): ${version}"
-          git tag -a "${version}" -m "${version}"
-          git push --atomic origin HEAD:main "refs/tags/${version}"
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/${version}"
       - name: Publish GitHub release
         run: |
           version="${{ needs.prepare_release.outputs.release_version }}"

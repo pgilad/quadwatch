@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,8 @@ import (
 
 const (
 	repoSlug           = "pgilad/quadwatch"
-	installURL         = "https://raw.githubusercontent.com/pgilad/quadwatch/main/scripts/install.sh"
+	githubAPIURL       = "https://api.github.com/repos/" + repoSlug
+	releaseAssetsURL   = "https://github.com/" + repoSlug + "/releases/download"
 	versionDev         = "dev"
 	httpRequestTimeout = 30 * time.Second
 )
@@ -51,7 +53,7 @@ func runSelfUpdate(args []string) error {
 	if _, err := fmt.Fprintf(os.Stderr, "Updating quadwatch from %s to %s\n", version, latest); err != nil {
 		return err
 	}
-	installer, err := downloadInstaller()
+	installer, err := downloadInstaller(latest)
 	if err != nil {
 		return err
 	}
@@ -84,14 +86,18 @@ type githubRelease struct {
 }
 
 func latestReleaseTag() (string, error) {
-	url := "https://api.github.com/repos/" + repoSlug + "/releases/latest"
-	resp, err := httpClient.Get(url)
+	return latestReleaseTagWithClient(httpClient, githubAPIURL)
+}
+
+func latestReleaseTagWithClient(client *http.Client, apiURL string) (string, error) {
+	releaseURL := strings.TrimRight(apiURL, "/") + "/releases/latest"
+	resp, err := client.Get(releaseURL)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("GET %s: %s", url, resp.Status)
+		return "", fmt.Errorf("GET %s: %s", releaseURL, resp.Status)
 	}
 	var release githubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
@@ -103,14 +109,19 @@ func latestReleaseTag() (string, error) {
 	return release.TagName, nil
 }
 
-func downloadInstaller() (string, error) {
-	resp, err := httpClient.Get(installURL)
+func downloadInstaller(tag string) (string, error) {
+	return downloadInstallerWithClient(httpClient, releaseAssetsURL, tag)
+}
+
+func downloadInstallerWithClient(client *http.Client, assetsURL, tag string) (string, error) {
+	installerURL := strings.TrimRight(assetsURL, "/") + "/" + url.PathEscape(tag) + "/install.sh"
+	resp, err := client.Get(installerURL)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("GET %s: %s", installURL, resp.Status)
+		return "", fmt.Errorf("GET %s: %s", installerURL, resp.Status)
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
