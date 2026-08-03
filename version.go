@@ -12,6 +12,7 @@ var (
 	errUnsupportedTagShape = errors.New("unsupported tag shape")
 	versionRe              = regexp.MustCompile(`^([^0-9]*?)([0-9]+(?:\.[0-9]+){0,3})(.*)$`)
 	prereleaseVersionRe    = regexp.MustCompile(`^([^0-9]*?)([0-9]+(?:\.[0-9]+){0,3}(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?)$`)
+	numericRevisionRe      = regexp.MustCompile(`^-[0-9]+$`)
 )
 
 type compatibilityOptions struct {
@@ -23,6 +24,7 @@ type parsedVersionTag struct {
 	version  *hcversion.Version
 	suffix   string
 	segments int
+	revision bool
 }
 
 func parseVersionTag(tag string) (parsedVersionTag, error) {
@@ -30,7 +32,12 @@ func parseVersionTag(tag string) (parsedVersionTag, error) {
 	if m == nil {
 		return parsedVersionTag{}, errUnsupportedTagShape
 	}
-	v, err := hcversion.NewVersion(m[2])
+	version := m[2]
+	revision := numericRevisionRe.MatchString(m[3])
+	if revision {
+		version += m[3]
+	}
+	v, err := hcversion.NewVersion(version)
 	if err != nil {
 		return parsedVersionTag{}, err
 	}
@@ -39,6 +46,7 @@ func parseVersionTag(tag string) (parsedVersionTag, error) {
 		version:  v,
 		suffix:   m[3],
 		segments: strings.Count(m[2], ".") + 1,
+		revision: revision,
 	}, nil
 }
 
@@ -104,7 +112,7 @@ func newestParsedCompatible(currentTag parsedVersionTag, tags []string, parse fu
 		if err != nil || candidate.prefix != currentTag.prefix {
 			continue
 		}
-		if !allowPrereleaseSuffixChanges && candidate.suffix != currentTag.suffix {
+		if !allowPrereleaseSuffixChanges && !compatibleSuffix(currentTag, candidate) {
 			continue
 		}
 		if candidate.segments < currentTag.segments {
@@ -120,6 +128,13 @@ func newestParsedCompatible(currentTag parsedVersionTag, tags []string, parse fu
 		newestVersion = candidate.version
 	}
 	return newestTag, nil
+}
+
+func compatibleSuffix(current, candidate parsedVersionTag) bool {
+	if current.revision || candidate.revision {
+		return current.revision && candidate.revision
+	}
+	return candidate.suffix == current.suffix
 }
 
 func updatesWithAvailableUpdatesOrErrors(updates []Update) []Update {

@@ -45,6 +45,18 @@ func TestNewestCompatible(t *testing.T) {
 			want:    "1.2.4-alpine",
 		},
 		{
+			name:    "numeric image revision may change",
+			current: "5.1.4-2",
+			tags:    []string{"5.1.4-3", "5.2.3", "5.2.3-alpine", "5.2.3-1"},
+			want:    "5.2.3-1",
+		},
+		{
+			name:    "numeric image revision orders equal versions",
+			current: "5.2.3-1",
+			tags:    []string{"5.2.3-1", "5.2.3-2"},
+			want:    "5.2.3-2",
+		},
+		{
 			name:    "normalized equal version is not newer",
 			current: "8.32.0",
 			tags:    []string{"8.31.0", "8.32", "8.32.0"},

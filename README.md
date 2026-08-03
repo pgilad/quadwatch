@@ -115,9 +115,10 @@ Examples:
 | `release-4.0.16.2944` | `release-` | `4.0.16.2944` | empty |
 | `nightly-1.2.3` | `nightly-` | `1.2.3` | empty |
 | `foo_bar_10.5-alpine` | `foo_bar_` | `10.5` | `-alpine` |
+| `5.2.3-1` | empty | `5.2.3` | numeric image revision `-1` |
 | `2026.04.25.123345` | empty | `2026.04.25.123345` | empty |
 
-Registry candidate tags must keep the same prefix and suffix as the current tag. GitHub Release lookups additionally treat a single leading `v` as optional and report the result using the current image tag's prefix style.
+Registry candidate tags must keep the same prefix and suffix as the current tag. A trailing numeric suffix is treated as an image-build revision, so numeric revisions are compatible with one another and participate in version ordering; for example, `5.1.4-2` can update to `5.2.3-1`, while neither tag matches `5.2.3-alpine`. GitHub Release lookups additionally treat a single leading `v` as optional and report the result using the current image tag's prefix style.
 
 For current tag `release-4.0.16.2944`, accepted candidates include:
 
