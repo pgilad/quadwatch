@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.08.03-81
+
+- fix: harden release provenance and updates (6199b9b)
+
 ## 2026.08.03-80
 
 - fix: support numeric image revisions (f18a522)
