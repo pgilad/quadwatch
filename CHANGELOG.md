@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.08.03-80
+
+- fix: support numeric image revisions (f18a522)
+
 ## 2026.07.24-69
 
 - fix: normalize GitHub release v prefixes (d31b068)
