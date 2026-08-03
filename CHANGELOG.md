@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.08.03-82
+
+- ci: attest release artifacts (a98b075)
+
 ## 2026.08.03-81
 
 - fix: harden release provenance and updates (6199b9b)
