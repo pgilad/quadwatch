@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.08.26-131
+
+- feat: support digest-pinned image updates (bd6a7aa)
+
 ## 2026.08.03-82
 
 - ci: attest release artifacts (a98b075)
