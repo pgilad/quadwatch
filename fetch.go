@@ -25,9 +25,11 @@ const (
 func fetchUpdates(ctx context.Context, images []Image, cfg Config, progress bool, progressColors colors) []Update {
 	updates := make([]Update, len(images))
 	fetcher := &updateFetcher{
-		config:             cfg,
-		githubReleaseCache: map[string]githubReleaseResult{},
-		registryTagCache:   map[string]registryTagResult{},
+		config:              cfg,
+		options:             cfg.Fetch,
+		githubReleaseCache:  map[string]githubReleaseResult{},
+		registryTagCache:    map[string]registryTagResult{},
+		registryDigestCache: map[string]registryDigestResult{},
 	}
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrentRemoteLookups)
@@ -91,7 +93,8 @@ func reportProgress(total int, updates <-chan Update, colors colors) {
 }
 
 type updateFetcher struct {
-	config Config
+	config  Config
+	options FetchConfig
 
 	githubReleaseMu    sync.Mutex
 	githubReleaseCache map[string]githubReleaseResult
@@ -99,6 +102,10 @@ type updateFetcher struct {
 	registryTagMu    sync.Mutex
 	registryTagCache map[string]registryTagResult
 	registryTagGroup singleflight.Group
+
+	registryDigestMu    sync.Mutex
+	registryDigestCache map[string]registryDigestResult
+	registryDigestGroup singleflight.Group
 }
 
 type githubReleaseResult struct {
@@ -109,6 +116,11 @@ type githubReleaseResult struct {
 type registryTagResult struct {
 	tags []string
 	err  error
+}
+
+type registryDigestResult struct {
+	digest string
+	err    error
 }
 
 func (f *updateFetcher) fetchOne(ctx context.Context, img Image) Update {
@@ -123,9 +135,9 @@ func newUpdate(img Image) Update {
 	return Update{File: img.File, Image: img.Image, Repository: img.Repository, CurrentTag: img.Tag}
 }
 
-func skipUnsupportedCurrentTag(img Image, opts compatibilityOptions) (Update, bool) {
+func skipUnsupportedCurrentTag(img Image, opts compatibilityOptions, checkDigestPinned bool) (Update, bool) {
 	u := newUpdate(img)
-	if img.Digest != "" {
+	if img.Digest != "" && !checkDigestPinned {
 		u.SkipReason = "digest-pinned image"
 		return u, true
 	}
@@ -147,7 +159,7 @@ func (f *updateFetcher) fetchOneGitHubRelease(ctx context.Context, img Image, gi
 
 func (f *updateFetcher) fetchOneGitHubReleaseWithConfig(ctx context.Context, img Image, repoConfig RepositoryConfig) Update {
 	opts := compatibilityOptions{includePrereleases: repoConfig.IncludePrereleases}
-	u, skipped := skipUnsupportedCurrentTag(img, opts)
+	u, skipped := skipUnsupportedCurrentTag(img, opts, f.options.CheckDigestPinned)
 	if skipped {
 		return u
 	}
@@ -170,7 +182,7 @@ func (f *updateFetcher) fetchOneGitHubReleaseWithConfig(ctx context.Context, img
 	}
 	u.NewestTag = newest
 	u.Update = newest != "" && newest != img.Tag
-	return u
+	return f.resolveNewestDigest(ctx, u)
 }
 
 func normalizeGitHubReleaseTagPrefixes(current string, tags []string, includePrereleases bool) []string {
@@ -271,7 +283,10 @@ func nonEmptyLines(output string) []string {
 }
 
 func fetchOneRegistry(ctx context.Context, img Image) Update {
-	fetcher := &updateFetcher{registryTagCache: map[string]registryTagResult{}}
+	fetcher := &updateFetcher{
+		registryTagCache:    map[string]registryTagResult{},
+		registryDigestCache: map[string]registryDigestResult{},
+	}
 	return fetcher.fetchOneRegistry(ctx, img)
 }
 
@@ -281,7 +296,7 @@ func (f *updateFetcher) fetchOneRegistry(ctx context.Context, img Image) Update 
 
 func (f *updateFetcher) fetchOneRegistryWithConfig(ctx context.Context, img Image, repoConfig RepositoryConfig) Update {
 	opts := compatibilityOptions{includePrereleases: repoConfig.IncludePrereleases}
-	u, skipped := skipUnsupportedCurrentTag(img, opts)
+	u, skipped := skipUnsupportedCurrentTag(img, opts, f.options.CheckDigestPinned)
 	if skipped {
 		return u
 	}
@@ -301,7 +316,20 @@ func (f *updateFetcher) fetchOneRegistryWithConfig(ctx context.Context, img Imag
 	}
 	u.NewestTag = newest
 	u.Update = newest != "" && newest != img.Tag
-	return u
+	return f.resolveNewestDigest(ctx, u)
+}
+
+func (f *updateFetcher) resolveNewestDigest(ctx context.Context, update Update) Update {
+	if !f.options.ResolveDigests || !update.Update {
+		return update
+	}
+	digest, err := f.registryDigest(ctx, update.Repository, update.NewestTag)
+	if err != nil {
+		update.Error = fmt.Sprintf("resolve digest for %s:%s: %v", update.Repository, update.NewestTag, err)
+		return update
+	}
+	update.NewestDigest = digest
+	return update
 }
 
 func (f *updateFetcher) registryTags(ctx context.Context, repository string) ([]string, error) {
@@ -340,4 +368,51 @@ func (f *updateFetcher) registryTags(ctx context.Context, repository string) ([]
 
 	cached := result.(registryTagResult)
 	return cached.tags, cached.err
+}
+
+func (f *updateFetcher) registryDigest(ctx context.Context, repository, tag string) (string, error) {
+	cacheKey := repository + "\x00" + tag
+	f.registryDigestMu.Lock()
+	if cached, ok := f.registryDigestCache[cacheKey]; ok {
+		f.registryDigestMu.Unlock()
+		return cached.digest, cached.err
+	}
+	f.registryDigestMu.Unlock()
+
+	result, _, _ := f.registryDigestGroup.Do(cacheKey, func() (any, error) {
+		f.registryDigestMu.Lock()
+		if cached, ok := f.registryDigestCache[cacheKey]; ok {
+			f.registryDigestMu.Unlock()
+			return cached, nil
+		}
+		f.registryDigestMu.Unlock()
+
+		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+		digest, err := fetchRegistryDigest(ctx, repository, tag)
+		cached := registryDigestResult{digest: digest, err: err}
+
+		f.registryDigestMu.Lock()
+		if f.registryDigestCache == nil {
+			f.registryDigestCache = map[string]registryDigestResult{}
+		}
+		f.registryDigestCache[cacheKey] = cached
+		f.registryDigestMu.Unlock()
+		return cached, nil
+	})
+
+	cached := result.(registryDigestResult)
+	return cached.digest, cached.err
+}
+
+func fetchRegistryDigest(ctx context.Context, repository, tag string) (string, error) {
+	ref, err := name.NewTag(repository + ":" + tag)
+	if err != nil {
+		return "", err
+	}
+	descriptor, err := remote.Get(ref, remote.WithContext(ctx), remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		return "", err
+	}
+	return descriptor.Digest.String(), nil
 }

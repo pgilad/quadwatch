@@ -22,6 +22,7 @@ Small Go CLI for finding container images in Quadlet files and checking registry
 - Progress reporting: `--progress` shows lookup status on stderr while keeping machine-readable output on stdout.
 - Conservative tag matching: compares version-like tags with the same prefix and suffix shape.
 - Supports prefixed tags: handles tags such as `release-4.0.16.2944`, `v2.7.0`, and `1.2.3-alpine`.
+- Optional digest handling: checks digest-pinned images and resolves the top-level digest for newer tags when requested.
 
 ## Quick Start
 
@@ -55,6 +56,12 @@ go build -o quadwatch .
 ./quadwatch fetch --all --progress --format table /path/to/quadlets
 ```
 
+To check digest-pinned images and report the top-level digest for each newer tag:
+
+```bash
+./quadwatch fetch --check-digest-pinned --resolve-digests --format table /path/to/quadlets
+```
+
 ## Commands
 
 | Command | Purpose |
@@ -71,8 +78,10 @@ Common options:
 - `--format json|csv|table`
 - `--color auto|always|never`: colorize human-readable table/progress output (default `auto`)
 - `--all` for `fetch`: show all images, including those without updates
+- `--check-digest-pinned` for `fetch`: check tagged digest-pinned images for newer compatible tags
 - `--config PATH` for `fetch`: load a YAML config file. If omitted, lookup uses `./quadwatch.yaml`, then `$XDG_CONFIG_HOME/quadwatch/config.yaml` (typically `~/.config/quadwatch/config.yaml`).
 - `--progress` for `fetch`: show remote lookup progress on stderr
+- `--resolve-digests` for `fetch`: resolve the top-level registry digest for each newer tag
 
 ## Quadlet scanning
 
@@ -93,7 +102,7 @@ The parser intentionally mirrors the subset used by Renovate's Quadlet manager:
 - Skips local/non-registry transports like `dir:`, `oci:`, `docker-archive:`, `oci-archive:`, `containers-storage:`, and `sif:`.
 - Strips `docker://` and `docker-daemon:` prefixes.
 - Applies Docker-style defaults: `docker.io` registry and `latest` tag when omitted.
-- Detects digest-pinned references such as `repo:tag@sha256:...`; `fetch` skips them with `skip_reason=digest-pinned image` because the digest, not the tag, controls what runs.
+- Detects digest-pinned references such as `repo:tag@sha256:...`; `fetch` skips them with `skip_reason=digest-pinned image` by default because the digest, not the tag, controls what runs. Use `--check-digest-pinned` to include tagged pinned images in the compatible-tag search.
 
 ## Tag compatibility
 
@@ -145,6 +154,10 @@ Default config lookup order:
 Use `--config PATH` to load a specific file instead.
 
 ```yaml
+fetch:
+  check_digest_pinned: true
+  resolve_digests: true
+
 github_releases:
   ghcr.io/immich-app/immich-server: immich-app/immich
   ghcr.io/immich-app/immich-machine-learning: immich-app/immich
@@ -154,6 +167,12 @@ repositories:
     github_release: we-promise/sure
     include_prereleases: true
 ```
+
+The `fetch.check_digest_pinned` and `fetch.resolve_digests` settings have the same effect as the related CLI flags. A CLI flag also enables its option when the config value is omitted or false.
+
+`check_digest_pinned` only changes update discovery. Quadwatch does not edit the Quadlet file. A digest-pinned reference without a tag cannot take part in version comparison and is still skipped as an unsupported tag shape.
+
+`resolve_digests` adds the selected tag's top-level registry digest to the result. This is an image index digest for a multi-platform tag and an image manifest digest for a single-platform tag.
 
 Config keys must use quadwatch's normalized repository name, not necessarily the image text as it appears in the Quadlet file. Quadwatch applies Docker-style defaults while scanning: Docker Hub images are normalized to `index.docker.io`, official Docker Hub images include the `library/` namespace, and tags are not part of the config key.
 
@@ -193,6 +212,8 @@ quadlet,image_name,current_tag,newest_tag,update,skip_reason,error
 ```
 
 Table output uses `STATUS` (`ok`, `update`, `skipped`, or `error`) and `DETAILS` columns for skip reasons or errors. CSV output includes both `skip_reason` and `error` columns.
+
+With `--resolve-digests`, CSV and table output add a `newest_digest` or `NEWEST DIGEST` column. JSON update objects add `newestDigest` when resolution succeeds.
 
 Non-version-like current tags, such as `latest`, are skipped before any registry/GitHub lookup and reported with `skip_reason=unsupported tag shape` when included with `fetch --all`; they are not treated as lookup errors.
 

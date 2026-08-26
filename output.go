@@ -45,18 +45,28 @@ func outputImages(images []Image, format string, colors colors) error {
 	}
 }
 
-func outputUpdates(updates []Update, format string, colors colors) error {
+func outputUpdates(updates []Update, format string, colors colors, showDigests bool) error {
 	switch format {
 	case "json":
 		return json.NewEncoder(os.Stdout).Encode(updates)
 	case "csv":
 		w := csv.NewWriter(os.Stdout)
 		defer w.Flush()
-		if err := w.Write([]string{"quadlet", "image_name", "current_tag", "newest_tag", "update", "skip_reason", "error"}); err != nil {
+		header := []string{"quadlet", "image_name", "current_tag", "newest_tag"}
+		if showDigests {
+			header = append(header, "newest_digest")
+		}
+		header = append(header, "update", "skip_reason", "error")
+		if err := w.Write(header); err != nil {
 			return err
 		}
 		for _, u := range updates {
-			if err := w.Write([]string{u.File, u.Repository, u.CurrentTag, u.NewestTag, fmt.Sprint(u.Update), u.SkipReason, u.Error}); err != nil {
+			row := []string{u.File, u.Repository, u.CurrentTag, u.NewestTag}
+			if showDigests {
+				row = append(row, u.NewestDigest)
+			}
+			row = append(row, fmt.Sprint(u.Update), u.SkipReason, u.Error)
+			if err := w.Write(row); err != nil {
 				return err
 			}
 		}
@@ -68,9 +78,20 @@ func outputUpdates(updates []Update, format string, colors colors) error {
 		}
 		rows := make([][]string, 0, len(updates))
 		for _, u := range updates {
-			rows = append(rows, []string{u.File, u.Repository, u.CurrentTag, u.NewestTag, updateStatus(u), updateDetails(u)})
+			row := []string{u.File, u.Repository, u.CurrentTag, u.NewestTag}
+			if showDigests {
+				row = append(row, u.NewestDigest)
+			}
+			rows = append(rows, append(row, updateStatus(u), updateDetails(u)))
 		}
-		return writeTable(os.Stdout, []string{"QUADLET", "IMAGE", "CURRENT", "NEWEST", "STATUS", "DETAILS"}, rows, colors, func(row int, col int, text string) string {
+		header := []string{"QUADLET", "IMAGE", "CURRENT", "NEWEST"}
+		if showDigests {
+			header = append(header, "NEWEST DIGEST")
+		}
+		header = append(header, "STATUS", "DETAILS")
+		statusColumn := len(header) - 2
+		detailsColumn := len(header) - 1
+		return writeTable(os.Stdout, header, rows, colors, func(row int, col int, text string) string {
 			u := updates[row]
 			switch col {
 			case 0:
@@ -87,9 +108,9 @@ func outputUpdates(updates []Update, format string, colors colors) error {
 					return colors.brightGreen(text)
 				}
 				return colors.dim(text)
-			case 4:
+			case statusColumn:
 				return colors.status(text)
-			case 5:
+			case detailsColumn:
 				if u.Error != "" {
 					return colors.red(text)
 				}

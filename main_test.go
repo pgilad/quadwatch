@@ -4,10 +4,16 @@ import (
 	"encoding/csv"
 	"flag"
 	"io"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 func TestNewestCompatible(t *testing.T) {
@@ -210,6 +216,67 @@ func TestDigestPinnedImageIsSkippedBeforeRepositoryParsing(t *testing.T) {
 	}
 	if update.Update {
 		t.Fatal("fetchOneRegistry() marked digest-pinned image as update")
+	}
+}
+
+func TestDigestPinnedImageCanBeCheckedAndResolved(t *testing.T) {
+	t.Parallel()
+
+	repository := "ghcr.io/example/app"
+	newestTag := "1.3.0"
+	newestDigest := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	fetcher := &updateFetcher{
+		options: FetchConfig{CheckDigestPinned: true, ResolveDigests: true},
+		registryTagCache: map[string]registryTagResult{
+			repository: {tags: []string{newestTag}},
+		},
+		registryDigestCache: map[string]registryDigestResult{
+			repository + "\x00" + newestTag: {digest: newestDigest},
+		},
+	}
+	update := fetcher.fetchOneRegistry(t.Context(), Image{
+		File:       "app.container",
+		Image:      repository + ":1.2.3@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Repository: repository,
+		Tag:        "1.2.3",
+		Digest:     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	})
+	if update.Error != "" || update.SkipReason != "" {
+		t.Fatalf("fetchOneRegistry() = %#v, want successful update", update)
+	}
+	if !update.Update || update.NewestTag != newestTag || update.NewestDigest != newestDigest {
+		t.Fatalf("fetchOneRegistry() = %#v", update)
+	}
+}
+
+func TestFetchRegistryDigestReturnsTopLevelIndexDigest(t *testing.T) {
+	t.Parallel()
+
+	registryServer := httptest.NewServer(registry.New())
+	t.Cleanup(registryServer.Close)
+	repository := strings.TrimPrefix(registryServer.URL, "http://") + "/example/app"
+	ref, err := name.NewTag(repository+":2.0.0", name.Insecure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := random.Index(256, 1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := index.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.WriteIndex(ref, index); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := fetchRegistryDigest(t.Context(), repository, "2.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want.String() {
+		t.Fatalf("fetchRegistryDigest() = %q, want %q", got, want)
 	}
 }
 
@@ -474,7 +541,7 @@ func TestLoadConfigDefaultLookupOrder(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 
 	xdgConfig := filepath.Join(xdg, "quadwatch", "config.yaml")
-	if err := os.WriteFile(xdgConfig, []byte("github_releases:\n  ghcr.io/example/xdg: owner/xdg\n"), 0o644); err != nil {
+	if err := os.WriteFile(xdgConfig, []byte("fetch:\n  check_digest_pinned: true\n  resolve_digests: true\ngithub_releases:\n  ghcr.io/example/xdg: owner/xdg\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadConfig("")
@@ -483,6 +550,9 @@ func TestLoadConfigDefaultLookupOrder(t *testing.T) {
 	}
 	if got := cfg.GitHubReleases["ghcr.io/example/xdg"]; got != "owner/xdg" {
 		t.Fatalf("loadConfig() XDG entry = %q", got)
+	}
+	if !cfg.Fetch.CheckDigestPinned || !cfg.Fetch.ResolveDigests {
+		t.Fatalf("loadConfig() XDG fetch config = %#v", cfg.Fetch)
 	}
 
 	cwdConfig := filepath.Join(cwd, cwdConfigPath)
@@ -538,6 +608,26 @@ func TestLoadConfigRepositoryOptions(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFetchOptions(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "quadwatch.yaml")
+	data := []byte(`fetch:
+  check_digest_pinned: true
+  resolve_digests: true
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Fetch.CheckDigestPinned || !cfg.Fetch.ResolveDigests {
+		t.Fatalf("loadConfig() fetch config = %#v", cfg.Fetch)
+	}
+}
+
 func TestUpdatesWithAvailableUpdatesOrErrors(t *testing.T) {
 	t.Parallel()
 
@@ -573,7 +663,7 @@ func TestOutputUpdatesCSVIncludesSkipReason(t *testing.T) {
 				CurrentTag: "latest",
 				SkipReason: "unsupported tag shape",
 			},
-		}, "csv", colors{}); err != nil {
+		}, "csv", colors{}, false); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -591,6 +681,34 @@ func TestOutputUpdatesCSVIncludesSkipReason(t *testing.T) {
 	}
 }
 
+func TestOutputUpdatesCSVIncludesResolvedDigestWhenEnabled(t *testing.T) {
+	output := captureStdout(t, func() {
+		if err := outputUpdates([]Update{
+			{
+				File:         "app.container",
+				Repository:   "example/app",
+				CurrentTag:   "1.0.0",
+				NewestTag:    "1.1.0",
+				NewestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Update:       true,
+			},
+		}, "csv", colors{}, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	records, err := csv.NewReader(strings.NewReader(output)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := records[0][4]; got != "newest_digest" {
+		t.Fatalf("CSV digest header = %q", got)
+	}
+	if got := records[1][4]; got != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("CSV newest_digest = %q", got)
+	}
+}
+
 func TestOutputUpdatesTableIncludesStatusAndDetails(t *testing.T) {
 	output := captureStdout(t, func() {
 		if err := outputUpdates([]Update{
@@ -600,7 +718,7 @@ func TestOutputUpdatesTableIncludesStatusAndDetails(t *testing.T) {
 				CurrentTag: "latest",
 				SkipReason: "unsupported tag shape",
 			},
-		}, "table", colors{}); err != nil {
+		}, "table", colors{}, false); err != nil {
 			t.Fatal(err)
 		}
 	})

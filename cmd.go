@@ -36,8 +36,10 @@ func runFetch(args []string) error {
 	format := fs.String("format", "table", "output format: json, csv, table")
 	colorMode := fs.String("color", colorAuto, "color output: auto, always, never")
 	all := fs.Bool("all", false, "show all images, including those without updates")
+	checkDigestPinned := fs.Bool("check-digest-pinned", false, "check digest-pinned images for newer tags")
 	configPath := fs.String("config", "", "YAML config file")
 	progress := fs.Bool("progress", false, "show remote lookup progress on stderr")
+	resolveDigests := fs.Bool("resolve-digests", false, "resolve the top-level digest for each newer tag")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -49,6 +51,8 @@ func runFetch(args []string) error {
 	if err != nil {
 		return err
 	}
+	cfg.Fetch.CheckDigestPinned = cfg.Fetch.CheckDigestPinned || *checkDigestPinned
+	cfg.Fetch.ResolveDigests = cfg.Fetch.ResolveDigests || *resolveDigests
 	images, err := scanImages(path)
 	if err != nil {
 		return err
@@ -67,7 +71,7 @@ func runFetch(args []string) error {
 	if !*all {
 		updates = updatesWithAvailableUpdatesOrErrors(updates)
 	}
-	if err := outputUpdates(updates, *format, stdoutColors); err != nil {
+	if err := outputUpdates(updates, *format, stdoutColors, cfg.Fetch.ResolveDigests); err != nil {
 		return err
 	}
 	if count := updateErrorCount(updates); count > 0 {
