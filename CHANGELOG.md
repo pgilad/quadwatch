@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.08.27-132
+
+- feat: add Quadlet update and pin commands (e8e5da9)
+
 ## 2026.08.26-131
 
 - feat: support digest-pinned image updates (bd6a7aa)
