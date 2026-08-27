@@ -23,6 +23,7 @@ Small Go CLI for finding container images in Quadlet files and checking registry
 - Conservative tag matching: compares version-like tags with the same prefix and suffix shape.
 - Supports prefixed tags: handles tags such as `release-4.0.16.2944`, `v2.7.0`, and `1.2.3-alpine`.
 - Optional digest handling: checks digest-pinned images and resolves the top-level digest for newer tags when requested.
+- Safe file updates: replaces image tags, optionally pins updated images, and preserves unrelated Quadlet text.
 
 ## Quick Start
 
@@ -62,12 +63,43 @@ To check digest-pinned images and report the top-level digest for each newer tag
 ./quadwatch fetch --check-digest-pinned --resolve-digests --format table /path/to/quadlets
 ```
 
+### 5. Update or pin Quadlet images
+
+Replace current tags with the newest compatible tags:
+
+```bash
+./quadwatch update /path/to/quadlets
+```
+
+Update tags and pin the updated images to their top-level digests:
+
+```bash
+./quadwatch update --pin /path/to/quadlets
+```
+
+To make all `update` commands pin updated images, add this top-level setting to `quadwatch.yaml`:
+
+```yaml
+always_pin: true
+```
+
+Pin each unpinned image at its current tag:
+
+```bash
+./quadwatch pin /path/to/quadlets
+```
+
+Add `--dry-run` to either write command to show all planned edits without changing files.
+
 ## Commands
 
 | Command | Purpose |
 |---|---|
 | `images PATH` | List detected images and current tags |
 | `fetch PATH` | List images with newer compatible remote tags |
+| `update PATH` | Replace image tags with newer compatible tags |
+| `update --pin PATH` | Replace tags and pin updated images to their top-level digests |
+| `pin PATH` | Pin unpinned images to the digest of their current tag |
 | `self-update` | Check the latest GitHub release and update the installed binary |
 | `uninstall` | Remove the current `quadwatch` binary |
 | `version` | Print the current version |
@@ -80,6 +112,9 @@ Common options:
 - `--all` for `fetch`: show all images, including those without updates
 - `--check-digest-pinned` for `fetch`: check tagged digest-pinned images for newer compatible tags
 - `--config PATH` for `fetch`: load a YAML config file. If omitted, lookup uses `./quadwatch.yaml`, then `$XDG_CONFIG_HOME/quadwatch/config.yaml` (typically `~/.config/quadwatch/config.yaml`).
+- `--config PATH` for `update`: use the same repository lookup configuration as `fetch`.
+- `--dry-run` for `update` and `pin`: show planned edits without writing files.
+- `--pin` for `update`: update the tag and top-level digest together.
 - `--progress` for `fetch`: show remote lookup progress on stderr
 - `--resolve-digests` for `fetch`: resolve the top-level registry digest for each newer tag
 
@@ -96,6 +131,8 @@ The scanner extracts image references from:
 - `[Container] Image=`
 - `[Image] Image=`
 - `[Volume] Image=`
+
+`update` and `pin` change only the image value. They preserve comments, blank lines, section and key case, spaces around `=`, supported transport prefixes, short Docker Hub names, the final newline, file permissions, and all unrelated file content. Before writing, Quadwatch verifies that each file still has the contents that it scanned. It writes a temporary file in the source directory and renames it over the source file.
 
 The parser intentionally mirrors the subset used by Renovate's Quadlet manager:
 
@@ -158,6 +195,8 @@ fetch:
   check_digest_pinned: true
   resolve_digests: true
 
+always_pin: true
+
 github_releases:
   ghcr.io/immich-app/immich-server: immich-app/immich
   ghcr.io/immich-app/immich-machine-learning: immich-app/immich
@@ -173,6 +212,10 @@ The `fetch.check_digest_pinned` and `fetch.resolve_digests` settings have the sa
 `check_digest_pinned` only changes update discovery. Quadwatch does not edit the Quadlet file. A digest-pinned reference without a tag cannot take part in version comparison and is still skipped as an unsupported tag shape.
 
 `resolve_digests` adds the selected tag's top-level registry digest to the result. This is an image index digest for a multi-platform tag and an image manifest digest for a single-platform tag.
+
+The `fetch.check_digest_pinned` and `fetch.resolve_digests` settings do not enable pinning for `update`. Use an explicit `update --pin` or set the top-level `always_pin: true` option to change digests during an update. The CLI flag enables pinning when `always_pin` is false or omitted. The `pin` command does not search for newer tags.
+
+`update` skips an existing digest-pinned image unless pinning is enabled with `--pin` or `always_pin: true`. When pinning is enabled, it changes the tag and digest together, but only when it finds a newer tag. `pin` skips images that already have a digest. For an untagged image, `pin` adds the explicit `latest` tag before the digest. If any required remote lookup fails, the command reports an error and changes no files.
 
 Config keys must use quadwatch's normalized repository name, not necessarily the image text as it appears in the Quadlet file. Quadwatch applies Docker-style defaults while scanning: Docker Hub images are normalized to `index.docker.io`, official Docker Hub images include the `library/` namespace, and tags are not part of the config key.
 

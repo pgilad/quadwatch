@@ -21,6 +21,14 @@ func main() {
 		if err := runFetch(os.Args[2:]); err != nil {
 			fatal(err)
 		}
+	case "update":
+		if err := runUpdate(os.Args[2:]); err != nil {
+			fatal(err)
+		}
+	case "pin":
+		if err := runPin(os.Args[2:]); err != nil {
+			fatal(err)
+		}
 	case "version", "--version":
 		if err := runVersion(); err != nil {
 			fatal(err)
@@ -46,6 +54,8 @@ func usage() {
 Usage:
   quadwatch images      [--format json|csv|table] [--color auto|always|never] PATH
   quadwatch fetch       [--format json|csv|table] [--color auto|always|never] [--all] [--check-digest-pinned] [--config PATH] [--progress] [--resolve-digests] PATH
+  quadwatch update      [--config PATH] [--dry-run] [--pin] PATH
+  quadwatch pin         [--dry-run] PATH
   quadwatch self-update
   quadwatch uninstall
   quadwatch version
@@ -53,6 +63,8 @@ Usage:
 Commands:
   images       List detected images and current tags
   fetch        List images with updates and newest compatible remote tags
+  update       Replace image tags with newer compatible tags
+  pin          Pin images to the digest of their current tag
   self-update  Update quadwatch to the latest GitHub release
   uninstall    Remove the current quadwatch binary
   version      Print the quadwatch version
@@ -63,6 +75,8 @@ Options:
                  Check digest-pinned images for newer tags
   --color MODE   Colorize human-readable output: auto, always, never (default auto)
   --config PATH  YAML config file (defaults to ./quadwatch.yaml, then XDG config)
+  --dry-run      Show planned file changes without writing them
+  --pin          Pin updated images to their top-level digest
   --progress     Show remote lookup progress on stderr
   --resolve-digests
                  Resolve the top-level digest for each newer tag

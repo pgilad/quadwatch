@@ -628,6 +628,22 @@ func TestLoadConfigFetchOptions(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAlwaysPin(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "quadwatch.yaml")
+	if err := os.WriteFile(path, []byte("always_pin: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AlwaysPin {
+		t.Fatal("loadConfig() did not enable always_pin")
+	}
+}
+
 func TestUpdatesWithAvailableUpdatesOrErrors(t *testing.T) {
 	t.Parallel()
 

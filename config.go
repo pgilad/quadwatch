@@ -15,6 +15,7 @@ type Config struct {
 	GitHubReleases map[string]string           `yaml:"github_releases"`
 	Repositories   map[string]RepositoryConfig `yaml:"repositories"`
 	Fetch          FetchConfig                 `yaml:"fetch"`
+	AlwaysPin      bool                        `yaml:"always_pin"`
 }
 
 type FetchConfig struct {
