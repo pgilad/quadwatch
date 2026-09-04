@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.09.04-149
+
+- feat: improve write command output (58b3603)
+
 ## 2026.08.27-132
 
 - feat: add Quadlet update and pin commands (e8e5da9)
