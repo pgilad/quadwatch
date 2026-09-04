@@ -90,6 +90,64 @@ func TestRewriteImageReference(t *testing.T) {
 	}
 }
 
+func TestOutputEditsFormatsReadableSummary(t *testing.T) {
+	t.Parallel()
+
+	edits := []Edit{
+		{
+			File: "roles/cooper_quadlets/files/quadlets/paperless-ngx/paperless.container",
+			Old:  "docker.io/paperlessngx/paperless-ngx:3.1.2@sha256:5ab4f4f9bb099a36bec3e092906ea3e611323c5f18dc5cc38c76a1d540bdca9c",
+			New:  "docker.io/paperlessngx/paperless-ngx:3.1.3@sha256:aa810a36942c63d4ee70d00eda7236cd3d6acfb7eb3f7987fb568ed14df8817a",
+		},
+		{
+			File: "roles/cooper_quadlets/files/quadlets/sure/sure-web.container",
+			Old:  "ghcr.io/we-promise/sure:0.7.5-alpha.2@sha256:c4043ecc77b9d32cc8f0b602d1785f1fbc26a50587c3fd9f67e51ff9228fedfe",
+			New:  "ghcr.io/we-promise/sure:0.7.5-alpha.3@sha256:8a88efcdcd9c08af08010563ec58a42cc4e8f9e56fcaebc2fd4e149a2f09716f",
+		},
+		{
+			File: "roles/cooper_quadlets/files/quadlets/sure/sure-worker.container",
+			Old:  "ghcr.io/we-promise/sure:0.7.5-alpha.2@sha256:c4043ecc77b9d32cc8f0b602d1785f1fbc26a50587c3fd9f67e51ff9228fedfe",
+			New:  "ghcr.io/we-promise/sure:0.7.5-alpha.3@sha256:8a88efcdcd9c08af08010563ec58a42cc4e8f9e56fcaebc2fd4e149a2f09716f",
+		},
+	}
+	var output bytes.Buffer
+	if err := outputEdits(&output, edits, false, editActionUpdate); err != nil {
+		t.Fatal(err)
+	}
+	want := `Updated 3 images in 3 files:
+
+roles/cooper_quadlets/files/quadlets/paperless-ngx/paperless.container:
+  docker.io/paperlessngx/paperless-ngx
+    tag     3.1.2 → 3.1.3
+    digest  sha256:5ab4f4f9bb09… → sha256:aa810a36942c…
+
+roles/cooper_quadlets/files/quadlets/sure/sure-web.container:
+  ghcr.io/we-promise/sure
+    tag     0.7.5-alpha.2 → 0.7.5-alpha.3
+    digest  sha256:c4043ecc77b9… → sha256:8a88efcdcd9c…
+
+roles/cooper_quadlets/files/quadlets/sure/sure-worker.container:
+  ghcr.io/we-promise/sure
+    tag     0.7.5-alpha.2 → 0.7.5-alpha.3
+    digest  sha256:c4043ecc77b9… → sha256:8a88efcdcd9c…
+`
+	if output.String() != want {
+		t.Fatalf("outputEdits() output:\n%s\nwant:\n%s", output.String(), want)
+	}
+}
+
+func TestOutputEditsReportsNoChanges(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	if err := outputEdits(&output, nil, false, editActionUpdate); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := output.String(), "No changes.\n"; got != want {
+		t.Fatalf("outputEdits() = %q, want %q", got, want)
+	}
+}
+
 func TestApplyEditsPreservesContentAndPermissions(t *testing.T) {
 	t.Parallel()
 
@@ -111,10 +169,10 @@ func TestApplyEditsPreservesContentAndPermissions(t *testing.T) {
 		imageEdit(scan.Images[1], "example/sidecar:2.1.0"),
 	}
 	var dryRun bytes.Buffer
-	if err := applyEdits(scan, edits, true, &dryRun); err != nil {
+	if err := applyEdits(scan, edits, true, editActionUpdate, &dryRun); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(dryRun.String(), "would update "+path) || !strings.Contains(dryRun.String(), "example/app:1.2.0 -> example/app:1.3.0") {
+	if !strings.Contains(dryRun.String(), "Would update 2 images in 1 file:") || !strings.Contains(dryRun.String(), path+":\n  example/app\n    tag     1.2.0 → 1.3.0") {
 		t.Fatalf("dry-run output = %q", dryRun.String())
 	}
 	if got, err := os.ReadFile(path); err != nil {
@@ -123,7 +181,7 @@ func TestApplyEditsPreservesContentAndPermissions(t *testing.T) {
 		t.Fatalf("dry-run changed file to %q", got)
 	}
 
-	if err := applyEdits(scan, edits, false, &bytes.Buffer{}); err != nil {
+	if err := applyEdits(scan, edits, false, editActionUpdate, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	want := "# keep\n[Container]\nImage = example/app:1.3.0 # keep\n\n[Image]\nImage=example/sidecar:2.1.0\n"
@@ -156,7 +214,7 @@ func TestApplyEditsRejectsFileChangedAfterScan(t *testing.T) {
 	if err := os.WriteFile(path, []byte("[Container]\nImage=example/app:1.2.1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err = applyEdits(scan, []Edit{imageEdit(scan.Images[0], "example/app:1.3.0")}, false, &bytes.Buffer{})
+	err = applyEdits(scan, []Edit{imageEdit(scan.Images[0], "example/app:1.3.0")}, false, editActionUpdate, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "changed after it was scanned") {
 		t.Fatalf("applyEdits() error = %v", err)
 	}

@@ -45,7 +45,7 @@ func TestRunUpdatePinChangesTagAndTopLevelDigest(t *testing.T) {
 	})
 	want := fmt.Sprintf("# keep\n[cOnTaInEr]\n  iMaGe = \"docker://%s:1.3.0@%s\" ; keep\n\n[Unit]\nDescription=Keep me\n", repository, newDigest)
 	assertFileContents(t, path, want)
-	if !strings.Contains(output, "updated "+path) || !strings.Contains(output, "1.3.0@"+newDigest.String()) {
+	if !strings.Contains(output, "Updated 1 image in 1 file:") || !strings.Contains(output, path+":") || !strings.Contains(output, "tag     1.2.0 → 1.3.0") || !strings.Contains(output, "digest  sha256:") {
 		t.Fatalf("runUpdate() output = %q", output)
 	}
 	info, err := os.Stat(path)
@@ -175,7 +175,7 @@ func TestRunPinDryRunDoesNotWrite(t *testing.T) {
 		}
 	})
 	assertFileContents(t, path, original)
-	if !strings.Contains(output, "would update "+path) || !strings.Contains(output, "@sha256:") {
+	if !strings.Contains(output, "Would pin 1 image in 1 file:") || !strings.Contains(output, path+":") || !strings.Contains(output, "digest  unpinned → sha256:") {
 		t.Fatalf("runPin() dry-run output = %q", output)
 	}
 }

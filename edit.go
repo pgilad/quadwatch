@@ -18,6 +18,13 @@ type Edit struct {
 	New   string
 }
 
+type editAction string
+
+const (
+	editActionUpdate editAction = "update"
+	editActionPin    editAction = "pin"
+)
+
 type pendingWrite struct {
 	file     string
 	tempPath string
@@ -55,9 +62,9 @@ func splitImageTransport(reference string) (string, string) {
 	return "", reference
 }
 
-func applyEdits(scan imageScan, edits []Edit, dryRun bool, output io.Writer) error {
+func applyEdits(scan imageScan, edits []Edit, dryRun bool, action editAction, output io.Writer) error {
 	if len(edits) == 0 {
-		return nil
+		return outputEdits(output, edits, dryRun, action)
 	}
 
 	grouped := make(map[string][]Edit)
@@ -100,7 +107,7 @@ func applyEdits(scan imageScan, edits []Edit, dryRun bool, output io.Writer) err
 	}
 
 	if dryRun {
-		return outputEdits(output, edits, true)
+		return outputEdits(output, edits, true, action)
 	}
 
 	pending := make([]pendingWrite, 0, len(fileOrder))
@@ -140,7 +147,7 @@ func applyEdits(scan imageScan, edits []Edit, dryRun bool, output io.Writer) err
 			return fmt.Errorf("replace %s: %w", write.file, err)
 		}
 	}
-	return outputEdits(output, edits, false)
+	return outputEdits(output, edits, false, action)
 }
 
 func renderEdits(file string, original []byte, edits []Edit) ([]byte, error) {
@@ -170,15 +177,106 @@ func renderEdits(file string, original []byte, edits []Edit) ([]byte, error) {
 	return content, nil
 }
 
-func outputEdits(output io.Writer, edits []Edit, dryRun bool) error {
-	verb := "updated"
-	if dryRun {
-		verb = "would update"
+func outputEdits(output io.Writer, edits []Edit, dryRun bool, action editAction) error {
+	if len(edits) == 0 {
+		_, err := fmt.Fprintln(output, "No changes.")
+		return err
 	}
+
+	grouped := make(map[string][]Edit)
+	fileOrder := make([]string, 0)
 	for _, edit := range edits {
-		if _, err := fmt.Fprintf(output, "%s %s: %s -> %s\n", verb, edit.File, edit.Old, edit.New); err != nil {
+		if _, found := grouped[edit.File]; !found {
+			fileOrder = append(fileOrder, edit.File)
+		}
+		grouped[edit.File] = append(grouped[edit.File], edit)
+	}
+
+	verb := "Updated"
+	if action == editActionPin {
+		verb = "Pinned"
+	}
+	if dryRun {
+		verb = "Would " + string(action)
+	}
+	if _, err := fmt.Fprintf(output, "%s %d %s in %d %s:\n\n", verb, len(edits), plural(len(edits), "image", "images"), len(fileOrder), plural(len(fileOrder), "file", "files")); err != nil {
+		return err
+	}
+
+	for index, file := range fileOrder {
+		if index > 0 {
+			if _, err := fmt.Fprintln(output); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(output, "%s:\n", file); err != nil {
+			return err
+		}
+		for _, edit := range grouped[file] {
+			if err := outputEditDetails(output, edit); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+type imageReferenceDetails struct {
+	name   string
+	tag    string
+	digest string
+}
+
+func outputEditDetails(output io.Writer, edit Edit) error {
+	oldReference := describeImageReference(edit.Old)
+	newReference := describeImageReference(edit.New)
+	name := oldReference.name
+	if oldReference.name != newReference.name {
+		name += " → " + newReference.name
+	}
+	if _, err := fmt.Fprintf(output, "  %s\n", name); err != nil {
+		return err
+	}
+	if oldReference.tag != newReference.tag {
+		if _, err := fmt.Fprintf(output, "    tag     %s → %s\n", oldReference.tag, newReference.tag); err != nil {
+			return err
+		}
+	}
+	if oldReference.digest != newReference.digest {
+		if _, err := fmt.Fprintf(output, "    digest  %s → %s\n", displayDigest(oldReference.digest), displayDigest(newReference.digest)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func describeImageReference(reference string) imageReferenceDetails {
+	_, reference = splitImageTransport(reference)
+	nameAndTag, digest, _ := strings.Cut(reference, "@")
+	name := nameAndTag
+	tag := "latest"
+	lastSlash := strings.LastIndex(nameAndTag, "/")
+	if lastColon := strings.LastIndex(nameAndTag, ":"); lastColon > lastSlash {
+		name = nameAndTag[:lastColon]
+		tag = nameAndTag[lastColon+1:]
+	}
+	return imageReferenceDetails{name: name, tag: tag, digest: digest}
+}
+
+func displayDigest(digest string) string {
+	if digest == "" {
+		return "unpinned"
+	}
+	algorithm, encoded, found := strings.Cut(digest, ":")
+	if !found || len(encoded) <= 12 {
+		return digest
+	}
+	return algorithm + ":" + encoded[:12] + "…"
+}
+
+func plural(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
 }

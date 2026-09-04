@@ -51,7 +51,7 @@ func runUpdate(args []string) error {
 	if err != nil {
 		return err
 	}
-	return applyEdits(scan, edits, *dryRun, os.Stdout)
+	return applyEdits(scan, edits, *dryRun, editActionUpdate, os.Stdout)
 }
 
 func runPin(args []string) error {
@@ -78,7 +78,7 @@ func runPin(args []string) error {
 	if err != nil {
 		return err
 	}
-	return applyEdits(scan, edits, *dryRun, os.Stdout)
+	return applyEdits(scan, edits, *dryRun, editActionPin, os.Stdout)
 }
 
 func buildUpdateEdits(images []Image, updates []Update, pin bool) ([]Edit, error) {
