@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.31-264
+
+- feat: skip failed image lookups by default (b71f8ab)
+
 ## 2026.09.04-149
 
 - feat: improve write command output (58b3603)
