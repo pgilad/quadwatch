@@ -91,6 +91,8 @@ Pin each unpinned image at its current tag:
 
 Add `--dry-run` to either write command to show all planned edits without changing files.
 
+By default, `fetch`, `update`, and `pin` report failed image lookups and continue with successful results. `update` and `pin` leave failed images unchanged. Add `--break-on-error` to return an error if any lookup fails; `update` and `pin` then change no files. Lookups finish before file changes start.
+
 ## Commands
 
 | Command | Purpose |
@@ -110,6 +112,7 @@ Common options:
 - `--format json|csv|table`
 - `--color auto|always|never`: colorize human-readable table/progress output (default `auto`)
 - `--all` for `fetch`: show all images, including those without updates
+- `--break-on-error` for `fetch`, `update`, and `pin`: return an error if any image lookup fails. For `update` and `pin`, change no files.
 - `--check-digest-pinned` for `fetch`: check tagged digest-pinned images for newer compatible tags
 - `--config PATH` for `fetch`: load a YAML config file. If omitted, lookup uses `./quadwatch.yaml`, then `$XDG_CONFIG_HOME/quadwatch/config.yaml` (typically `~/.config/quadwatch/config.yaml`).
 - `--config PATH` for `update`: use the same repository lookup configuration as `fetch`.
@@ -215,7 +218,7 @@ The `fetch.check_digest_pinned` and `fetch.resolve_digests` settings have the sa
 
 The `fetch.check_digest_pinned` and `fetch.resolve_digests` settings do not enable pinning for `update`. Use an explicit `update --pin` or set the top-level `always_pin: true` option to change digests during an update. The CLI flag enables pinning when `always_pin` is false or omitted. The `pin` command does not search for newer tags.
 
-`update` skips an existing digest-pinned image unless pinning is enabled with `--pin` or `always_pin: true`. When pinning is enabled, it changes the tag and digest together, but only when it finds a newer tag. `pin` skips images that already have a digest. For an untagged image, `pin` adds the explicit `latest` tag before the digest. If any required remote lookup fails, the command reports an error and changes no files.
+`update` skips an existing digest-pinned image unless pinning is enabled with `--pin` or `always_pin: true`. When pinning is enabled, it changes the tag and digest together, but only when it finds a newer tag. `pin` skips images that already have a digest. For an untagged image, `pin` adds the explicit `latest` tag before the digest. Failed lookups produce a warning on stderr. The command skips those images, applies successful changes, and exits successfully. With `--break-on-error`, any failed lookup causes an error and prevents all file changes. Configuration, scan, and file write errors still cause the command to fail in either mode.
 
 Config keys must use quadwatch's normalized repository name, not necessarily the image text as it appears in the Quadlet file. Quadwatch applies Docker-style defaults while scanning: Docker Hub images are normalized to `index.docker.io`, official Docker Hub images include the `library/` namespace, and tags are not part of the config key.
 
@@ -255,6 +258,8 @@ quadlet,image_name,current_tag,newest_tag,update,skip_reason,error
 ```
 
 Table output uses `STATUS` (`ok`, `update`, `skipped`, or `error`) and `DETAILS` columns for skip reasons or errors. CSV output includes both `skip_reason` and `error` columns.
+
+`fetch` keeps failed lookups in its output and reports a warning on stderr. Lookup failures affect the exit status only when `--break-on-error` is supplied.
 
 With `--resolve-digests`, CSV and table output add a `newest_digest` or `NEWEST DIGEST` column. JSON update objects add `newestDigest` when resolution succeeds.
 

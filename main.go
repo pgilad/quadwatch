@@ -53,9 +53,9 @@ func usage() {
 
 Usage:
   quadwatch images      [--format json|csv|table] [--color auto|always|never] PATH
-  quadwatch fetch       [--format json|csv|table] [--color auto|always|never] [--all] [--check-digest-pinned] [--config PATH] [--progress] [--resolve-digests] PATH
-  quadwatch update      [--config PATH] [--dry-run] [--pin] PATH
-  quadwatch pin         [--dry-run] PATH
+  quadwatch fetch       [--format json|csv|table] [--color auto|always|never] [--all] [--break-on-error] [--check-digest-pinned] [--config PATH] [--progress] [--resolve-digests] PATH
+  quadwatch update      [--break-on-error] [--config PATH] [--dry-run] [--pin] PATH
+  quadwatch pin         [--break-on-error] [--dry-run] PATH
   quadwatch self-update
   quadwatch uninstall
   quadwatch version
@@ -71,6 +71,8 @@ Commands:
 
 Options:
   --all          Show all images, including those without updates
+  --break-on-error
+                 Fail on image lookup errors; update and pin change no files
   --check-digest-pinned
                  Check digest-pinned images for newer tags
   --color MODE   Colorize human-readable output: auto, always, never (default auto)

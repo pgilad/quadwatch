@@ -749,14 +749,24 @@ func TestOutputUpdatesTableIncludesStatusAndDetails(t *testing.T) {
 
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
+	return captureOutput(t, &os.Stdout, fn)
+}
 
-	oldStdout := os.Stdout
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	return captureOutput(t, &os.Stderr, fn)
+}
+
+func captureOutput(t *testing.T, stream **os.File, fn func()) string {
+	t.Helper()
+
+	oldStream := *stream
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.Stdout = w
-	defer func() { os.Stdout = oldStdout }()
+	*stream = w
+	defer func() { *stream = oldStream }()
 
 	fn()
 

@@ -20,6 +20,7 @@ func runUpdate(args []string) error {
 	configPath := fs.String("config", "", "YAML config file")
 	dryRun := fs.Bool("dry-run", false, "show planned file changes without writing them")
 	pin := fs.Bool("pin", false, "pin updated images to their top-level digest")
+	breakOnError := fs.Bool("break-on-error", false, "fail on image lookup errors before writing any files")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -44,7 +45,10 @@ func runUpdate(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	updates := fetchUpdates(ctx, scan.Images, cfg, false, colors{})
-	if err := updateLookupErrors(updates); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := handleLookupError(updateLookupErrors(updates), *breakOnError); err != nil {
 		return err
 	}
 	edits, err := buildUpdateEdits(scan.Images, updates, pinEnabled)
@@ -57,6 +61,7 @@ func runUpdate(args []string) error {
 func runPin(args []string) error {
 	fs := flag.NewFlagSet("pin", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "show planned file changes without writing them")
+	breakOnError := fs.Bool("break-on-error", false, "fail on image lookup errors before writing any files")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -71,7 +76,10 @@ func runPin(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	results := resolveCurrentDigests(ctx, scan.Images)
-	if err := pinLookupErrors(scan.Images, results); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := handleLookupError(pinLookupErrors(scan.Images, results), *breakOnError); err != nil {
 		return err
 	}
 	edits, err := buildPinEdits(scan.Images, results)
@@ -87,7 +95,7 @@ func buildUpdateEdits(images []Image, updates []Update, pin bool) ([]Edit, error
 	}
 	edits := make([]Edit, 0)
 	for i, update := range updates {
-		if !update.Update {
+		if update.Error != "" || !update.Update {
 			continue
 		}
 		digest := ""
@@ -115,7 +123,7 @@ func buildPinEdits(images []Image, results []pinResult) ([]Edit, error) {
 	}
 	edits := make([]Edit, 0)
 	for i, img := range images {
-		if img.Digest != "" {
+		if img.Digest != "" || results[i].err != nil {
 			continue
 		}
 		if results[i].digest == "" {

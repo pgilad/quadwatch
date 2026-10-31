@@ -40,6 +40,7 @@ func runFetch(args []string) error {
 	configPath := fs.String("config", "", "YAML config file")
 	progress := fs.Bool("progress", false, "show remote lookup progress on stderr")
 	resolveDigests := fs.Bool("resolve-digests", false, "resolve the top-level digest for each newer tag")
+	breakOnError := fs.Bool("break-on-error", false, "fail on image lookup errors")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -68,17 +69,26 @@ func runFetch(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	updates := fetchUpdates(ctx, images, cfg, *progress, stderrColors)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !*all {
 		updates = updatesWithAvailableUpdatesOrErrors(updates)
 	}
 	if err := outputUpdates(updates, *format, stdoutColors, cfg.Fetch.ResolveDigests); err != nil {
 		return err
 	}
-	if count := updateErrorCount(updates); count > 0 {
-		return fmt.Errorf("%d image lookup(s) failed", count)
-	}
-	return nil
+	return handleLookupError(updateLookupErrors(updates), *breakOnError)
 }
+
+func handleLookupError(err error, breakOnError bool) error {
+	if err == nil || breakOnError {
+		return err
+	}
+	_, writeErr := fmt.Fprintf(os.Stderr, "warning: skipping failed image lookups: %v\n", err)
+	return writeErr
+}
+
 func pathArg(fs *flag.FlagSet) (string, error) {
 	switch fs.NArg() {
 	case 0:

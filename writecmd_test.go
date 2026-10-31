@@ -196,7 +196,7 @@ func TestRunPinLookupFailureChangesNoFiles(t *testing.T) {
 	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := runPin([]string{dir})
+	err := runPin([]string{"--break-on-error", dir})
 	if err == nil || !strings.Contains(err.Error(), "image lookup(s) failed") {
 		t.Fatalf("runPin() error = %v", err)
 	}
