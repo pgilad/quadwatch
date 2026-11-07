@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.11.07-279
+
+- fix: detect major-minor version format changes (b34625f)
+
 ## 2026.10.31-264
 
 - feat: skip failed image lookups by default (b71f8ab)
