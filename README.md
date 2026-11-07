@@ -182,6 +182,8 @@ Ignored candidates include:
 
 For non-empty prefixes other than `v`, the candidate version must also have the same number of numeric segments as the current version. This avoids treating commit-like tags such as `release-9831336` as newer versions of tags like `release-4.0.16.2944`.
 
+Shorter versions are normally skipped to avoid floating major and minor tags. A new major version may change its release format from `major.minor.patch` to `major.minor`, such as Jellyfin's `10.11.11` to `12.4`. Quadwatch accepts that change only when the new major has no more precise compatible tags. Prefix, flavor suffix, and numeric image revision rules still apply. Shorter tags within the current major, major-only aliases, and shortened custom-prefixed or four-part versions remain excluded.
+
 ## Configuration
 
 `fetch` can use a YAML config to source selected image updates from GitHub Releases instead of registry tag listing. This is useful for GHCR repositories with very large tag lists.

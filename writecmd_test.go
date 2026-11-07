@@ -57,6 +57,38 @@ func TestRunUpdatePinChangesTagAndTopLevelDigest(t *testing.T) {
 	}
 }
 
+func TestRunUpdatePinVersionFormatChange(t *testing.T) {
+	repository, closeRegistry := testRegistry(t)
+	defer closeRegistry()
+	oldIndex := writeRandomIndex(t, repository, "10.11.11")
+	newIndex := writeRandomIndex(t, repository, "12.4")
+	oldDigest, err := oldIndex.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newDigest, err := newIndex.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	path := filepath.Join(dir, "jellyfin.container")
+	original := fmt.Sprintf("[Container]\nImage=%s:10.11.11@%s\n", repository, oldDigest)
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runUpdate([]string{"--pin", "--dry-run", dir}); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContents(t, path, original)
+	if err := runUpdate([]string{"--pin", dir}); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContents(t, path, fmt.Sprintf("[Container]\nImage=%s:12.4@%s\n", repository, newDigest))
+}
+
 func TestRunUpdateDoesNotUseFetchDigestConfiguration(t *testing.T) {
 	repository, closeRegistry := testRegistry(t)
 	defer closeRegistry()

@@ -430,6 +430,7 @@ func TestFetchOneGitHubReleaseUsesLatestReleaseTagCompatibility(t *testing.T) {
 		{name: "matching v prefix", current: "v1.2.0", releaseTag: "v1.3.0", want: "v1.3.0"},
 		{name: "release adds v prefix", current: "1.2.0", releaseTag: "v1.3.0", want: "1.3.0"},
 		{name: "release omits v prefix", current: "v1.2.0", releaseTag: "1.3.0", want: "v1.3.0"},
+		{name: "release changes version format", current: "10.11.11", releaseTag: "v12.4", want: "12.4"},
 		{name: "unrelated prefix remains incompatible", current: "release-1.2.0", releaseTag: "v1.3.0"},
 	}
 

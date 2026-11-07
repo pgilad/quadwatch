@@ -20,6 +20,7 @@ type compatibilityOptions struct {
 }
 
 type parsedVersionTag struct {
+	tag      string
 	prefix   string
 	version  *hcversion.Version
 	suffix   string
@@ -42,6 +43,7 @@ func parseVersionTag(tag string) (parsedVersionTag, error) {
 		return parsedVersionTag{}, err
 	}
 	return parsedVersionTag{
+		tag:      tag,
 		prefix:   m[1],
 		version:  v,
 		suffix:   m[3],
@@ -60,6 +62,7 @@ func parsePrereleaseVersionTag(tag string) (parsedVersionTag, error) {
 		return parsedVersionTag{}, err
 	}
 	return parsedVersionTag{
+		tag:      tag,
 		prefix:   m[1],
 		version:  v,
 		segments: versionSegmentCount(m[2]),
@@ -105,8 +108,8 @@ func newestCompatiblePrerelease(current string, tags []string) (string, error) {
 }
 
 func newestParsedCompatible(currentTag parsedVersionTag, tags []string, parse func(string) (parsedVersionTag, error), allowPrereleaseSuffixChanges bool) (string, error) {
-	var newestTag string
-	var newestVersion *hcversion.Version
+	candidates := make([]parsedVersionTag, 0, len(tags))
+	maxSegmentsByMajor := make(map[int]int)
 	for _, tag := range tags {
 		candidate, err := parse(tag)
 		if err != nil || candidate.prefix != currentTag.prefix {
@@ -115,8 +118,22 @@ func newestParsedCompatible(currentTag parsedVersionTag, tags []string, parse fu
 		if !allowPrereleaseSuffixChanges && !compatibleSuffix(currentTag, candidate) {
 			continue
 		}
+		candidates = append(candidates, candidate)
+		major := candidate.version.Segments()[0]
+		maxSegmentsByMajor[major] = max(maxSegmentsByMajor[major], candidate.segments)
+	}
+
+	var newestTag string
+	var newestVersion *hcversion.Version
+	for _, candidate := range candidates {
 		if candidate.segments < currentTag.segments {
-			continue
+			// A new major can change its release format. More precise compatible
+			// tags in that major mean the shorter tags are still floating aliases.
+			major := candidate.version.Segments()[0]
+			if currentTag.segments != 3 || candidate.segments != 2 ||
+				major <= currentTag.version.Segments()[0] || maxSegmentsByMajor[major] != candidate.segments {
+				continue
+			}
 		}
 		if currentTag.prefix != "" && currentTag.prefix != "v" && candidate.segments != currentTag.segments {
 			continue
@@ -124,7 +141,7 @@ func newestParsedCompatible(currentTag parsedVersionTag, tags []string, parse fu
 		if !candidate.version.GreaterThan(currentTag.version) || (newestVersion != nil && !candidate.version.GreaterThan(newestVersion)) {
 			continue
 		}
-		newestTag = tag
+		newestTag = candidate.tag
 		newestVersion = candidate.version
 	}
 	return newestTag, nil
