@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.11.09-285
+
+- chore: update Go to 1.27.3 (744e2ef)
+- chore: update Go dependencies (d67bfec)
+
 ## 2026.11.07-279
 
 - fix: detect major-minor version format changes (b34625f)
