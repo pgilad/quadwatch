@@ -16,6 +16,72 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
+func TestRunUpdatePreservesContinuedEnvironment(t *testing.T) {
+	repository, closeRegistry := testRegistry(t)
+	defer closeRegistry()
+	writeRandomImage(t, repository, "1.3.0")
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	path := filepath.Join(dir, "app.container")
+	template := "[Container]\r\nImage= \\\r\n  %s:%s\r\nEnvironment=LABEL=some \\\r\n# keep\r\n  Image=%s:9.0.0"
+	original := fmt.Sprintf(template, repository, "1.2.0", repository)
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runUpdate([]string{"--break-on-error", path}); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContents(t, path, fmt.Sprintf(template, repository, "1.3.0", repository))
+}
+
+func TestRunUpdateChecksGitHubReleaseTags(t *testing.T) {
+	repository, closeRegistry := testRegistry(t)
+	defer closeRegistry()
+	writeRandomImage(t, repository, "1.3.0")
+
+	dir := t.TempDir()
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	gh := filepath.Join(dir, "gh")
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\nprintf '%s\\n' \"$TEST_RELEASE_TAG\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(dir, "quadwatch.yaml")
+	configData := fmt.Sprintf("repositories:\n  %s:\n    github_release: owner/repo\n    include_prereleases: true\n", repository)
+	if err := os.WriteFile(config, []byte(configData), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		tag     string
+		wantErr string
+	}{
+		{tag: "v1.3.0+build.1", wantErr: "invalid registry tag"},
+		{tag: "v1.4.0", wantErr: "MANIFEST_UNKNOWN"},
+		{tag: "v1.3.0"},
+	} {
+		t.Run(tt.tag, func(t *testing.T) {
+			t.Setenv("TEST_RELEASE_TAG", tt.tag)
+			path := filepath.Join(t.TempDir(), "app.container")
+			original := fmt.Sprintf("[Container]\nImage=%s:1.2.0\n", repository)
+			if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := runUpdate([]string{"--break-on-error", "--config", config, path})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("runUpdate() error = %v, want %q", err, tt.wantErr)
+				}
+				assertFileContents(t, path, original)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertFileContents(t, path, fmt.Sprintf("[Container]\nImage=%s:1.3.0\n", repository))
+		})
+	}
+}
+
 func TestRunUpdatePinChangesTagAndTopLevelDigest(t *testing.T) {
 	repository, closeRegistry := testRegistry(t)
 	defer closeRegistry()

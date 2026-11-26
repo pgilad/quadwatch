@@ -37,6 +37,7 @@ func runUpdate(args []string) error {
 	// not silently enable pinning for a write operation.
 	cfg.Fetch.CheckDigestPinned = pinEnabled
 	cfg.Fetch.ResolveDigests = pinEnabled
+	cfg.Fetch.verifyGitHubTags = true
 
 	scan, err := scanImageFiles(path)
 	if err != nil {

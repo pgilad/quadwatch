@@ -21,6 +21,7 @@ type Config struct {
 type FetchConfig struct {
 	CheckDigestPinned bool `yaml:"check_digest_pinned"`
 	ResolveDigests    bool `yaml:"resolve_digests"`
+	verifyGitHubTags  bool
 }
 
 type RepositoryConfig struct {

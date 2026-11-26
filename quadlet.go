@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
-	"gopkg.in/ini.v1"
 )
 
 type scannedFile struct {
@@ -23,8 +22,8 @@ type imageScan struct {
 }
 
 var (
-	quadletImageKeys  = [][2]string{{"Container", "Image"}, {"Image", "Image"}, {"Volume", "Image"}}
-	quadletExtensions = map[string]struct{}{
+	quadletImageSections = []string{"container", "image", "volume"}
+	quadletExtensions    = map[string]struct{}{
 		".container": {},
 		".image":     {},
 		".volume":    {},
@@ -79,75 +78,125 @@ func parseQuadlet(path string) ([]Image, error) {
 }
 
 func parseQuadletData(path string, data []byte) ([]Image, error) {
-	cfg, err := ini.LoadSources(ini.LoadOptions{Insensitive: true}, data)
+	values, err := findImageValues(data)
 	if err != nil {
 		return nil, err
 	}
-	sources := findImageSources(data)
 	var out []Image
-	for _, p := range quadletImageKeys {
-		sec := cfg.Section(p[0])
-		if sec == nil || !sec.HasKey(p[1]) {
+	for _, section := range quadletImageSections {
+		value := values[section]
+		if section != "image" && (strings.HasSuffix(value.reference, ".image") || strings.HasSuffix(value.reference, ".build")) {
 			continue
 		}
-		raw := strings.TrimSpace(sec.Key(p[1]).String())
-		img, ok := normalizeImage(path, raw)
-		if ok {
-			source, found := sources[strings.ToLower(p[0])]
-			if !found {
-				return nil, fmt.Errorf("find source for [%s] %s", p[0], p[1])
-			}
-			img.Source = source
+		if img, ok := normalizeImage(path, value.reference); ok {
+			img.Source = value.source
 			out = append(out, img)
 		}
 	}
 	return out, nil
 }
 
-func findImageSources(data []byte) map[string]ImageSource {
-	sources := map[string]ImageSource{}
-	section := ""
-	for offset := 0; offset < len(data); {
-		lineEnd := bytes.IndexByte(data[offset:], '\n')
-		if lineEnd < 0 {
-			lineEnd = len(data)
-		} else {
-			lineEnd += offset
-		}
-		line := bytes.TrimSpace(data[offset:lineEnd])
-		if len(line) != 0 && line[0] != '#' && line[0] != ';' {
-			if line[0] == '[' {
-				if closeIndex := bytes.LastIndexByte(line, ']'); closeIndex >= 0 {
-					section = strings.ToLower(string(line[1:closeIndex]))
-				}
-			} else if isSupportedImageSection(section) {
-				delimiter := bytes.IndexAny(line, "=:")
-				if delimiter >= 0 && strings.EqualFold(strings.TrimSpace(string(line[:delimiter])), "Image") {
-					lineOffset := offset + bytes.Index(data[offset:lineEnd], line)
-					start, end := imageValueRange(line, delimiter+1)
-					sources[section] = ImageSource{
-						Start:    lineOffset + start,
-						End:      lineOffset + end,
-						Original: string(line[start:end]),
-					}
-				}
-			}
-		}
-		if lineEnd == len(data) {
-			break
-		}
-		offset = lineEnd + 1
-	}
-	return sources
+type quadletImageValue struct {
+	reference string
+	source    ImageSource
 }
 
-func isSupportedImageSection(section string) bool {
-	for _, pair := range quadletImageKeys {
-		if strings.EqualFold(pair[0], section) {
-			return true
+type quadletLinePart struct {
+	start  int
+	offset int
+	length int
+}
+
+func findImageValues(data []byte) (map[string]quadletImageValue, error) {
+	values := make(map[string]quadletImageValue)
+	section := ""
+	var joined []byte
+	var parts []quadletLinePart
+	var quote []byte
+	for offset, lineNumber := 0, 1; offset < len(data); lineNumber++ {
+		physical, rest, _ := bytes.Cut(data[offset:], []byte{'\n'})
+		lineStart := offset
+		offset = len(data) - len(rest)
+		if lineStart == 0 && bytes.HasPrefix(physical, []byte("\ufeff")) {
+			physical = physical[3:]
+			lineStart += 3
 		}
+		line := bytes.TrimSpace(physical)
+		if len(quote) != 0 {
+			if bytes.Contains(line, quote) {
+				quote = nil
+			}
+			continue
+		}
+		if len(line) == 0 || line[0] == '#' || line[0] == ';' {
+			continue
+		}
+
+		physicalOffset := lineStart + bytes.Index(physical, line)
+		continued := line[len(line)-1] == '\\'
+		if continued {
+			line = line[:len(line)-1]
+			continued = len(rest) != 0
+		}
+		if continued || len(parts) != 0 {
+			parts = append(parts, quadletLinePart{start: len(joined), offset: physicalOffset, length: len(line)})
+			joined = append(joined, line...)
+			if continued {
+				continue
+			}
+			line = joined
+		} else {
+			parts = append(parts, quadletLinePart{offset: physicalOffset, length: len(line)})
+		}
+
+		if len(line) == 0 {
+			continue
+		}
+		if line[0] == '[' {
+			closeIndex := bytes.LastIndexByte(line, ']')
+			if closeIndex < 0 {
+				return nil, fmt.Errorf("unterminated section on line %d", lineNumber)
+			}
+			section = strings.ToLower(strings.TrimSpace(string(line[1:closeIndex])))
+		} else {
+			delimiter := bytes.IndexAny(line, "=:")
+			if delimiter < 0 {
+				return nil, fmt.Errorf("invalid directive on line %d", lineNumber)
+			}
+			value := bytes.TrimSpace(line[delimiter+1:])
+			for _, marker := range [][]byte{[]byte(`"""`), {'`'}} {
+				if bytes.HasPrefix(value, marker) && !bytes.Contains(value[len(marker):], marker) {
+					quote = marker
+					break
+				}
+			}
+			if strings.EqualFold(strings.TrimSpace(string(line[:delimiter])), "Image") {
+				var image quadletImageValue
+				if len(quote) == 0 {
+					start, end := imageValueRange(line, delimiter+1)
+					reference := bytes.TrimSpace(line[start:end])
+					start += bytes.Index(line[start:end], reference)
+					end = start + len(reference)
+					image.reference = string(reference)
+					// An edit must fit in one physical line to preserve the continuation.
+					for _, part := range parts {
+						if start >= part.start && end <= part.start+part.length {
+							sourceStart := part.offset + start - part.start
+							image.source = ImageSource{Start: sourceStart, End: sourceStart + end - start, Original: image.reference}
+							break
+						}
+					}
+				}
+				values[section] = image
+			}
+		}
+		joined = joined[:0]
+		parts = parts[:0]
 	}
-	return false
+	if len(quote) != 0 {
+		return nil, fmt.Errorf("unterminated multiline value")
+	}
+	return values, nil
 }
 
 func imageValueRange(line []byte, valueOffset int) (int, int) {

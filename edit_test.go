@@ -36,6 +36,34 @@ func TestParseQuadletRecordsExactImageSource(t *testing.T) {
 	}
 }
 
+func TestParseQuadletSkipsLocalUnits(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		file string
+		data string
+		want string
+	}{
+		{"app.container", "[Container]\nImage=app.image\n", ""},
+		{"app.container", "[Container]\nImage=app.build\n", ""},
+		{"app.volume", "[Volume]\nImage=app.image\n", ""},
+		{"app.image", "[Image]\nImage=ghcr.io/example/app.image\n", "ghcr.io/example/app.image"},
+		{"app.container", "[Container]\nImage=ghcr.io/example/app.image:1\n", "ghcr.io/example/app.image"},
+	} {
+		images, err := parseQuadletData(tt.file, []byte(tt.data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tt.want == "" {
+			if len(images) != 0 {
+				t.Fatalf("parseQuadletData(%q) = %#v, want no images", tt.data, images)
+			}
+		} else if len(images) != 1 || images[0].Repository != tt.want {
+			t.Fatalf("parseQuadletData(%q) = %#v, want %s", tt.data, images, tt.want)
+		}
+	}
+}
+
 func TestRewriteImageReference(t *testing.T) {
 	t.Parallel()
 

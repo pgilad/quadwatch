@@ -9,7 +9,6 @@ require (
 	github.com/hashicorp/go-version v1.9.0
 	go.yaml.in/yaml/v4 v4.0.0
 	golang.org/x/sync v0.25.0
-	gopkg.in/ini.v1 v1.68.0
 )
 
 require (

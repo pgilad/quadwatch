@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,8 @@ const (
 	maxConcurrentRemoteLookups = 8
 	requestTimeout             = 30 * time.Second
 )
+
+var registryTagPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 
 func fetchUpdates(ctx context.Context, images []Image, cfg Config, progress bool, progressColors colors) []Update {
 	updates := make([]Update, len(images))
@@ -181,8 +184,15 @@ func (f *updateFetcher) fetchOneGitHubReleaseWithConfig(ctx context.Context, img
 		return u
 	}
 	u.NewestTag = newest
-	u.Update = newest != "" && newest != img.Tag
-	return f.resolveNewestDigest(ctx, u)
+	if newest == "" {
+		return u
+	}
+	if !registryTagPattern.MatchString(newest) {
+		u.Error = fmt.Sprintf("invalid registry tag %q from GitHub release", newest)
+		return u
+	}
+	u.Update = true
+	return f.resolveNewestDigest(ctx, u, f.options.verifyGitHubTags)
 }
 
 func normalizeGitHubReleaseTagPrefixes(current string, tags []string, includePrereleases bool) []string {
@@ -316,11 +326,11 @@ func (f *updateFetcher) fetchOneRegistryWithConfig(ctx context.Context, img Imag
 	}
 	u.NewestTag = newest
 	u.Update = newest != "" && newest != img.Tag
-	return f.resolveNewestDigest(ctx, u)
+	return f.resolveNewestDigest(ctx, u, false)
 }
 
-func (f *updateFetcher) resolveNewestDigest(ctx context.Context, update Update) Update {
-	if !f.options.ResolveDigests || !update.Update {
+func (f *updateFetcher) resolveNewestDigest(ctx context.Context, update Update, verify bool) Update {
+	if (!f.options.ResolveDigests && !verify) || !update.Update {
 		return update
 	}
 	digest, err := f.registryDigest(ctx, update.Repository, update.NewestTag)
@@ -328,7 +338,9 @@ func (f *updateFetcher) resolveNewestDigest(ctx context.Context, update Update) 
 		update.Error = fmt.Sprintf("resolve digest for %s:%s: %v", update.Repository, update.NewestTag, err)
 		return update
 	}
-	update.NewestDigest = digest
+	if f.options.ResolveDigests {
+		update.NewestDigest = digest
+	}
 	return update
 }
 

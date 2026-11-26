@@ -140,6 +140,7 @@ The scanner extracts image references from:
 The parser intentionally mirrors the subset used by Renovate's Quadlet manager:
 
 - Skips local/non-registry transports like `dir:`, `oci:`, `docker-archive:`, `oci-archive:`, `containers-storage:`, and `sif:`.
+- Skips local `.image` and `.build` unit references in `[Container]` and `[Volume]`. It scans the registry reference in the referenced `.image` file when that file is under `PATH`.
 - Strips `docker://` and `docker-daemon:` prefixes.
 - Applies Docker-style defaults: `docker.io` registry and `latest` tag when omitted.
 - Detects digest-pinned references such as `repo:tag@sha256:...`; `fetch` skips them with `skip_reason=digest-pinned image` by default because the digest, not the tag, controls what runs. Use `--check-digest-pinned` to include tagged pinned images in the compatible-tag search.
@@ -238,6 +239,8 @@ You can run `quadwatch images --format table PATH` to see the exact repository n
 `github_releases` is a shorthand for stable GitHub release lookups. For per-repository options, use `repositories`. Set `include_prereleases: true` to opt a specific normalized repository into prerelease-aware matching for tags such as `v0.7.2-alpha.10` and `v0.7.2-rc.1`. This option applies to both registry tag listing and GitHub release lookups; omit `github_release` to keep using registry tags.
 
 Configured stable GitHub release entries run `gh release view -R <repo> --json tagName -q .tagName`. Repositories with `include_prereleases: true` and `github_release` configured run `gh release list -R <repo> --exclude-drafts --limit 100 --json tagName -q '.[].tagName'`, then compare those release tags using prerelease-aware compatibility rules. The `gh` CLI must be installed and authenticated if the GitHub request requires it.
+
+`update` checks that the selected tag from GitHub Releases is valid and has a manifest in the image registry before it changes a Quadlet file.
 
 GitHub Release lookups normalize an optional leading `v` to match the current image tag. For example, an image at `0.7.3-alpha.1` can use a GitHub release tagged `v0.7.3-alpha.4`; quadwatch reports the image-compatible tag `0.7.3-alpha.4`.
 

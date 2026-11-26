@@ -80,4 +80,94 @@ QUADWATCH_INSTALL_TARGET="${target}" \
 sh "${source_dir}/target/release/metadata/install.sh"
 
 [[ "$("${install_dir}/quadwatch" version)" == "${release_version}" ]] || { echo "error: installed binary has the wrong version" >&2; exit 1; }
-printf 'Release smoke test passed for %s\n' "${target}"
+publish_dir="${test_root}/publish"
+mkdir -p "${publish_dir}/dist" "${publish_dir}/metadata" "${publish_dir}/bin" "${publish_dir}/remote"
+cp "${source_dir}/target/release/metadata/install.sh" "${publish_dir}/metadata/"
+cp "${source_dir}/target/release/notes.md" "${publish_dir}/metadata/release-notes.md"
+if command -v shasum >/dev/null; then
+  checksum=(shasum -a 256)
+else
+  checksum=(sha256sum)
+fi
+for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+  for archive in "quadwatch-${release_version}-${platform}.tar.gz" "quadwatch-${platform}.tar.gz"; do
+    printf '%s\n' "${archive}" > "${publish_dir}/dist/${archive}"
+    "${checksum[@]}" "${publish_dir}/dist/${archive}" | awk '{print $1}' > "${publish_dir}/dist/${archive}.sha256"
+  done
+done
+cat > "${publish_dir}/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+test "$1" = release
+operation="$2"
+test "$3" = --repo
+test "$5" = "${TEST_RELEASE_VERSION}"
+shift 5
+state="${TEST_RELEASE_REMOTE}"
+case "${operation}" in
+  view)
+    if [[ ! -f "${state}/draft" ]]; then
+      echo 'release not found' >&2
+      exit 1
+    fi
+    cat "${state}/draft"
+    for file in "${state}"/assets/*; do
+      if [[ -s "${file}" ]]; then basename "${file}"; fi
+    done
+    ;;
+  create)
+    test ! -e "${state}/draft"
+    printf '%s\n' draft > "${state}/draft"
+    mkdir "${state}/assets"
+    ;;
+  upload)
+    for file in "$@"; do
+      if [[ "${file}" == --clobber ]]; then continue; fi
+      cp "${file}" "${state}/assets/"
+      if [[ "${file}" == *.tar.gz && -f "${state}/fail-upload" ]]; then
+        rm "${state}/fail-upload"
+        exit 1
+      fi
+    done
+    ;;
+  download)
+    test "$1" = --pattern
+    test "$3" = --dir
+    cp "${state}/assets/$2" "$4/"
+    ;;
+  edit)
+    test "$1" = --draft=false
+    test "$(cat "${state}/draft")" = draft
+    printf '%s\n' published > "${state}/draft"
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "${publish_dir}/bin/gh"
+export PATH="${publish_dir}/bin:${PATH}"
+export TEST_RELEASE_VERSION="${release_version}" TEST_RELEASE_REMOTE="${publish_dir}/remote"
+publisher="${source_dir}/scripts/publish-release.sh"
+publish() {
+  bash "${publisher}" publish example/quadwatch "${release_version}" "${publish_dir}/dist" "${publish_dir}/metadata"
+}
+release_status() {
+  bash "${publisher}" status example/quadwatch "${release_version}"
+}
+
+test "$(release_status)" = incomplete
+touch "${TEST_RELEASE_REMOTE}/fail-upload"
+if publish; then
+  echo "error: release publish passed despite an interrupted upload" >&2
+  exit 1
+fi
+test "$(release_status)" = incomplete
+first_archive="quadwatch-${release_version}-linux-amd64.tar.gz"
+printf '%s\n' rebuilt > "${publish_dir}/dist/${first_archive}"
+"${checksum[@]}" "${publish_dir}/dist/${first_archive}" | awk '{print $1}' > "${publish_dir}/dist/${first_archive}.sha256"
+publish
+test "$(release_status)" = complete
+test "$(cat "${TEST_RELEASE_REMOTE}/assets/${first_archive}")" = "${first_archive}"
+(cd "${TEST_RELEASE_REMOTE}/assets" && "${checksum[@]}" -c checksums.txt)
+publish
+
+printf 'Release and publication retry smoke tests passed for %s\n' "${target}"
