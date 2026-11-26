@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.11.26-318
+
+- chore: update project dependencies (1f3554a)
+- fix: protect Quadlet updates and resume failed releases (0825bee)
+
 ## 2026.11.09-285
 
 - chore: update Go to 1.27.3 (744e2ef)
